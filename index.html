@@ -745,58 +745,6 @@
             padding: 8px;
         }
 
-        .noise-suppression {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            padding: 15px 20px;
-            background: rgba(30, 41, 59, 0.5);
-            border-radius: 12px;
-            margin-top: 10px;
-        }
-
-        .noise-suppression label {
-            font-size: 0.9rem;
-            color: #cbd5e1;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .noise-suppression input[type="range"] {
-            width: 100%;
-            height: 6px;
-            background: #334155;
-            border-radius: 3px;
-            outline: none;
-            -webkit-appearance: none;
-        }
-
-        .noise-suppression input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 18px;
-            height: 18px;
-            background: #38bdf8;
-            border-radius: 50%;
-            cursor: pointer;
-        }
-
-        .noise-suppression input[type="range"]::-moz-range-thumb {
-            width: 18px;
-            height: 18px;
-            background: #38bdf8;
-            border-radius: 50%;
-            cursor: pointer;
-            border: none;
-        }
-
-        .noise-level {
-            font-weight: bold;
-            color: #38bdf8;
-            min-width: 40px;
-            text-align: right;
-        }
-
         @media (max-width: 768px) {
             header h1 {
                 font-size: 1.8rem;
@@ -887,13 +835,6 @@
                     <span class="slider"></span>
                     <span class="label">🎤 Microphone</span>
                 </label>
-            </div>
-            <div class="noise-suppression">
-                <label>
-                    <span>🎚️ Noise Suppression</span>
-                    <span class="noise-level" id="noiseLevel">50%</span>
-                </label>
-                <input type="range" id="noiseSuppressionLevel" min="0" max="100" value="50">
             </div>
         </div>
 
@@ -1009,7 +950,6 @@
                 this.videoCall = null;
                 this.audioCall = null;
                 this.remotePeerId = null;
-                this.noiseSuppressionLevel = 0.5;
                 this.isScreenSharing = false;
                 this.isVideoCallActive = false;
                 this.isAudioCallActive = false;
@@ -1048,8 +988,6 @@
                 this.remoteVideo = document.getElementById('remoteVideo');
                 this.connectionStatus = document.getElementById('connectionStatus');
                 this.streamStatus = document.getElementById('streamStatus');
-                this.noiseLevelDisplay = document.getElementById('noiseLevel');
-                this.noiseSuppressionSlider = document.getElementById('noiseSuppressionLevel');
                 
                 // Track which streams are active
                 this.activeStreams = {
@@ -1344,15 +1282,6 @@
                     toggleBtn.addEventListener('click', () => this.toggleChatPanel());
                 }
                 
-                // Noise suppression slider
-                if (this.noiseSuppressionSlider) {
-                    this.noiseSuppressionSlider.addEventListener('input', (e) => {
-                        this.noiseSuppressionLevel = e.target.value / 100;
-                        this.noiseLevelDisplay.textContent = e.target.value + '%';
-                        this.log('Noise suppression level:', this.noiseSuppressionLevel);
-                    });
-                }
-                
                 // Chat panel click when minimized
                 const chatPanel = document.getElementById('chatPanel');
                 if (chatPanel) {
@@ -1624,26 +1553,7 @@
                                 }
                             };
                             
-                            // Apply noise suppression level if supported
-                            if (navigator.mediaDevices.getSupportedConstraints().noiseSuppression) {
-                                constraints.audio.noiseSuppression = {
-                                    ideal: this.noiseSuppressionLevel > 0
-                                };
-                            }
-                            
                             micStream = await navigator.mediaDevices.getUserMedia(constraints);
-                            
-                            // Apply noise suppression using Web Audio API
-                            if (micStream && this.noiseSuppressionLevel > 0) {
-                                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                                const source = audioContext.createMediaStreamSource(micStream);
-                                const gainNode = audioContext.createGain();
-                                gainNode.gain.value = 1 - (this.noiseSuppressionLevel * 0.3); // Reduce gain based on suppression
-                                source.connect(gainNode);
-                                const destination = audioContext.createMediaStreamDestination();
-                                gainNode.connect(destination);
-                                micStream = destination.stream;
-                            }
                         } catch (e) {
                             this.log('⚠️ Could not access microphone:', e.message);
                         }
@@ -1762,22 +1672,6 @@
                     };
                     
                     this.videoCallStream = await navigator.mediaDevices.getUserMedia(constraints);
-                    
-                    // Apply noise suppression using Web Audio API
-                    if (shareMic && this.videoCallStream && this.noiseSuppressionLevel > 0) {
-                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        const source = audioContext.createMediaStreamSource(this.videoCallStream);
-                        const gainNode = audioContext.createGain();
-                        gainNode.gain.value = 1 - (this.noiseSuppressionLevel * 0.3);
-                        source.connect(gainNode);
-                        const destination = audioContext.createMediaStreamDestination();
-                        gainNode.connect(destination);
-                        
-                        // Combine video with processed audio
-                        const videoTracks = this.videoCallStream.getVideoTracks();
-                        const audioTracks = destination.stream.getAudioTracks();
-                        this.videoCallStream = new MediaStream([...videoTracks, ...audioTracks]);
-                    }
                     
                     // Show local video preview
                     this.localVideo.srcObject = this.videoCallStream;
@@ -1905,18 +1799,6 @@
                     };
                     
                     this.audioCallStream = await navigator.mediaDevices.getUserMedia(constraints);
-                    
-                    // Apply noise suppression using Web Audio API
-                    if (this.noiseSuppressionLevel > 0) {
-                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        const source = audioContext.createMediaStreamSource(this.audioCallStream);
-                        const gainNode = audioContext.createGain();
-                        gainNode.gain.value = 1 - (this.noiseSuppressionLevel * 0.3);
-                        source.connect(gainNode);
-                        const destination = audioContext.createMediaStreamDestination();
-                        gainNode.connect(destination);
-                        this.audioCallStream = destination.stream;
-                    }
                     
                     this.updateStreamStatus('🟢 Audio Call Active', true);
                     this.log('✅ Audio call started');
