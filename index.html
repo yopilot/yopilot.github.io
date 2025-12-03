@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>P2P Screen Share - PeerJS</title>
     <!-- PeerJS CDN -->
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
@@ -354,9 +354,24 @@
             left: 0;
             width: 100vw;
             height: 100vh;
+            height: 100dvh; /* Dynamic viewport height for mobile */
             z-index: 9999;
             border-radius: 0;
             transform: none;
+            margin: 0;
+            padding: 0;
+            /* Handle mobile safe areas and notches */
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
+        }
+        
+        .video-wrapper.fullscreen video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
         }
 
         .video-wrapper.pip {
@@ -1518,9 +1533,20 @@
                 try {
                     this.log('🖥️ Requesting screen share...');
                     
+                    // CRITICAL: Stop any existing video/audio call to prevent echo
+                    if (this.isVideoCallActive) {
+                        this.log('⚠️ Stopping video call to prevent echo');
+                        this.stopVideoCall();
+                    }
+                    if (this.isAudioCallActive) {
+                        this.log('⚠️ Stopping audio call to prevent echo');
+                        this.stopAudioCall();
+                    }
+                    
                     const shareAudio = document.getElementById('shareAudio').checked;
                     const shareMic = document.getElementById('shareMic').checked;
                     
+                    // Get screen with system audio (for movie sound)
                     const screenStream = await navigator.mediaDevices.getDisplayMedia({
                         video: {
                             width: { ideal: 3840, max: 3840 },
@@ -1530,7 +1556,7 @@
                             displaySurface: 'monitor'
                         },
                         audio: shareAudio ? {
-                            echoCancellation: false,
+                            echoCancellation: false, // Don't process system audio
                             noiseSuppression: false,
                             autoGainControl: false,
                             sampleRate: 48000,
@@ -1539,40 +1565,52 @@
                         } : false
                     });
                     
+                    // Get microphone separately with echo cancellation
                     let micStream = null;
                     if (shareMic) {
                         try {
-                            const constraints = {
+                            micStream = await navigator.mediaDevices.getUserMedia({
                                 audio: {
-                                    echoCancellation: true,
+                                    echoCancellation: true, // Critical for preventing echo
                                     noiseSuppression: true,
                                     autoGainControl: true,
                                     sampleRate: 48000,
                                     sampleSize: 24,
                                     channelCount: 2
                                 }
-                            };
-                            
-                            micStream = await navigator.mediaDevices.getUserMedia(constraints);
+                            });
+                            this.log('✅ Microphone enabled with echo cancellation');
                         } catch (e) {
                             this.log('⚠️ Could not access microphone:', e.message);
+                            alert('Microphone access denied. Sharing without mic.');
                         }
                     }
                     
+                    // Combine streams properly - avoid duplicate tracks
+                    const videoTracks = screenStream.getVideoTracks();
                     const audioTracks = [];
+                    
+                    // Add system audio (movie sound) if available
                     if (shareAudio && screenStream.getAudioTracks().length > 0) {
-                        audioTracks.push(...screenStream.getAudioTracks());
+                        audioTracks.push(screenStream.getAudioTracks()[0]); // Only first track
+                        this.log('✅ System audio enabled');
                     }
+                    
+                    // Add microphone if available and different from system audio
                     if (micStream && micStream.getAudioTracks().length > 0) {
-                        audioTracks.push(...micStream.getAudioTracks());
+                        audioTracks.push(micStream.getAudioTracks()[0]); // Only first track
+                        this.log('✅ Microphone added to stream');
                     }
                     
                     this.localStream = new MediaStream([
-                        ...screenStream.getVideoTracks(),
+                        ...videoTracks,
                         ...audioTracks
                     ]);
                     
+                    this.log(`📊 Stream created: ${videoTracks.length} video, ${audioTracks.length} audio tracks`);
+                    
                     this.localScreen.srcObject = this.localStream;
+                    this.localScreen.muted = true; // Always mute local preview to prevent echo
                     this.localScreen.play().catch(e => this.error('Error playing local screen:', e));
                     document.getElementById('localScreenWrapper').classList.remove('hidden');
                     this.activeStreams.screenLocal = true;
@@ -1961,38 +1999,71 @@
                 }
             }
             
-            toggleFullscreen(wrapperId) {
+            async toggleFullscreen(wrapperId) {
                 const wrapper = document.getElementById(wrapperId);
                 if (!wrapper) return;
                 
-                if (wrapper.classList.contains('fullscreen')) {
-                    // Exit fullscreen
-                    wrapper.classList.remove('fullscreen');
-                    
-                    // Restore all other visible streams to normal view
-                    document.querySelectorAll('.video-wrapper.pip').forEach(w => {
-                        w.classList.remove('pip');
-                        w.style.left = '';
-                        w.style.top = '';
-                        w.style.right = '';
-                        w.style.bottom = '';
-                    });
-                    
-                    this.log('Exited fullscreen for', wrapperId);
-                } else {
-                    // Enter fullscreen for this wrapper
-                    document.querySelectorAll('.video-wrapper.fullscreen').forEach(w => {
-                        w.classList.remove('fullscreen');
-                    });
-                    
-                    wrapper.classList.add('fullscreen');
-                    
-                    // Convert all other visible streams to PIP mode
-                    document.querySelectorAll('.video-wrapper:not(.hidden):not(.fullscreen)').forEach(w => {
-                        w.classList.add('pip');
-                    });
-                    
-                    this.log('Entered fullscreen for', wrapperId);
+                try {
+                    if (wrapper.classList.contains('fullscreen')) {
+                        // Exit fullscreen
+                        if (document.fullscreenElement || document.webkitFullscreenElement) {
+                            if (document.exitFullscreen) {
+                                await document.exitFullscreen();
+                            } else if (document.webkitExitFullscreen) {
+                                await document.webkitExitFullscreen();
+                            }
+                        }
+                        
+                        wrapper.classList.remove('fullscreen');
+                        
+                        // Restore all other visible streams to normal view
+                        document.querySelectorAll('.video-wrapper.pip').forEach(w => {
+                            w.classList.remove('pip');
+                            w.style.left = '';
+                            w.style.top = '';
+                            w.style.right = '';
+                            w.style.bottom = '';
+                            w.style.width = '';
+                            w.style.height = '';
+                        });
+                        
+                        this.log('Exited fullscreen for', wrapperId);
+                    } else {
+                        // Exit any existing fullscreen first
+                        document.querySelectorAll('.video-wrapper.fullscreen').forEach(w => {
+                            w.classList.remove('fullscreen');
+                        });
+                        
+                        // Enter native fullscreen for best mobile experience
+                        if (wrapper.requestFullscreen) {
+                            await wrapper.requestFullscreen();
+                        } else if (wrapper.webkitRequestFullscreen) {
+                            await wrapper.webkitRequestFullscreen();
+                        } else if (wrapper.webkitEnterFullscreen) {
+                            // For iOS Safari video element
+                            const video = wrapper.querySelector('video');
+                            if (video && video.webkitEnterFullscreen) {
+                                video.webkitEnterFullscreen();
+                            }
+                        }
+                        
+                        wrapper.classList.add('fullscreen');
+                        
+                        // Convert all other visible streams to PIP mode
+                        document.querySelectorAll('.video-wrapper:not(.hidden):not(.fullscreen)').forEach(w => {
+                            w.classList.add('pip');
+                        });
+                        
+                        this.log('Entered fullscreen for', wrapperId);
+                    }
+                } catch (err) {
+                    this.error('Fullscreen error:', err);
+                    // Fallback to CSS fullscreen
+                    if (wrapper.classList.contains('fullscreen')) {
+                        wrapper.classList.remove('fullscreen');
+                    } else {
+                        wrapper.classList.add('fullscreen');
+                    }
                 }
             }
             
