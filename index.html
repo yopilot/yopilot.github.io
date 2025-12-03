@@ -1920,8 +1920,10 @@
                 this.connectionStatus.textContent = status;
                 this.connectionStatus.className = 'status ' + (isConnected ? 'connected' : 'disconnected');
                 this.shareScreenBtn.disabled = !isConnected;
-                this.startVideoCallBtn.disabled = !isConnected;
-                this.startAudioCallBtn.disabled = !isConnected;
+                // videoToggle is always available once connected
+                if (this.videoToggle) {
+                    this.videoToggle.disabled = !isConnected;
+                }
             }
             
             updateStreamStatus(status, isSharing) {
