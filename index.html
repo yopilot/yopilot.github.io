@@ -1425,15 +1425,6 @@
                 conn.on('error', (err) => {
                     this.error('Connection error:', err);
                 });
-                
-                // Set timeout for connection
-                setTimeout(() => {
-                    if (conn && !conn.open) {
-                        this.error('Connection timeout - not opened within 60 seconds');
-                        this.updateConnectionStatus('⚪ Connection Timeout', false);
-                        alert('Connection timeout. Please try again.');
-                    }
-                }, 60000);
             }
             
             async activateConnection() {
@@ -1552,10 +1543,22 @@
                             this.remoteMicElement = document.createElement('audio');
                             this.remoteMicElement.autoplay = true;
                             this.remoteMicElement.volume = 1.0;
+                            // Optimize for real-time playback with no buffering
+                            this.remoteMicElement.playsInline = true;
+                            this.remoteMicElement.muted = false;
+                            this.remoteMicElement.preload = 'none';
+                            // Disable buffering for real-time audio
+                            this.remoteMicElement.setAttribute('playsinline', 'true');
+                            this.remoteMicElement.setAttribute('webkit-playsinline', 'true');
                             document.body.appendChild(this.remoteMicElement);
                         }
                         this.remoteMicElement.srcObject = remoteStream;
-                        this.log('✅ Friend\'s microphone audio playing in background');
+                        // Explicitly play to ensure audio starts immediately
+                        this.remoteMicElement.play().then(() => {
+                            this.log('✅ Friend\'s microphone audio playing in background (real-time)');
+                        }).catch(err => {
+                            this.error('Failed to play remote audio:', err);
+                        });
                     } else {
                         // Fallback: guess based on track label
                         if (videoTrack && (videoTrack.label.toLowerCase().includes('screen') || videoTrack.label.toLowerCase().includes('monitor'))) {
