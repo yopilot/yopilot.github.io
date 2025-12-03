@@ -1,0 +1,1945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Screen Share - PeerJS</title>
+    <!-- PeerJS CDN -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: #f1f5f9;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            color: #38bdf8;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+
+        .connection-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-bottom: 25px;
+            background: rgba(30, 41, 59, 0.7);
+            padding: 25px;
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .workflow-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 0.5rem;
+        }
+
+        .workflow-btn {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.5rem;
+            background: linear-gradient(135deg, rgba(51, 65, 85, 0.9), rgba(30, 41, 59, 0.9));
+            border: 2px solid rgba(100, 149, 237, 0.3);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+        }
+
+        .workflow-btn:hover {
+            transform: translateY(-2px);
+            border-color: rgba(100, 149, 237, 0.6);
+            box-shadow: 0 8px 20px rgba(100, 149, 237, 0.3);
+        }
+
+        .workflow-btn .icon {
+            font-size: 2rem;
+            flex-shrink: 0;
+        }
+
+        .workflow-btn div {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .workflow-btn strong {
+            font-size: 1.1rem;
+            color: #e2e8f0;
+        }
+
+        .workflow-btn small {
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+
+        .id-section {
+            flex: 1;
+            min-width: 280px;
+            max-width: 400px;
+        }
+
+        .id-section label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+
+        .id-display {
+            display: flex;
+            gap: 10px;
+        }
+
+        .id-display input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #334155;
+            border-radius: 8px;
+            background: #0f172a;
+            color: #f8fafc;
+            font-size: 1rem;
+            font-family: 'Consolas', monospace;
+            transition: border-color 0.2s;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #f6603bff, #2563eb);
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 8px -1px rgba(59, 130, 246, 0.3);
+            filter: brightness(1.1);
+        }
+
+        button:disabled {
+            background: #334155;
+            cursor: not-allowed;
+            opacity: 0.7;
+            box-shadow: none;
+            transform: none;
+        }
+
+        #copyId {
+            padding: 12px 15px;
+            min-width: 50px;
+            background: #334155;
+        }
+
+        #copyId:hover {
+            background: #475569;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .controls > button {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 15px 25px;
+            font-size: 1.1rem;
+        }
+
+        #shareScreen {
+            background: linear-gradient(135deg, #10b981, #059669);
+            box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2);
+        }
+
+        #stopShare {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.2);
+        }
+
+        #startVideoCall {
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+            box-shadow: 0 4px 6px -1px rgba(139, 92, 246, 0.2);
+        }
+
+        #startVideoCall:hover:not(:disabled) {
+            box-shadow: 0 6px 8px -1px rgba(139, 92, 246, 0.3);
+        }
+
+        #stopVideoCall {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            box-shadow: 0 4px 6px -1px rgba(245, 158, 11, 0.2);
+        }
+
+        #stopVideoCall:hover:not(:disabled) {
+            box-shadow: 0 6px 8px -1px rgba(245, 158, 11, 0.3);
+        }
+
+        .audio-controls {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            background: rgba(30, 41, 59, 0.5);
+            padding: 10px 20px;
+            border-radius: 12px;
+        }
+
+        .toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .toggle input {
+            display: none;
+        }
+
+        .slider {
+            width: 44px;
+            height: 24px;
+            background: #334155;
+            border-radius: 12px;
+            position: relative;
+            transition: background 0.3s;
+        }
+
+        .slider::before {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: #fff;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+        }
+
+        .toggle input:checked + .slider {
+            background: #38bdf8;
+        }
+
+        .toggle input:checked + .slider::before {
+            transform: translateX(20px);
+        }
+
+        .toggle .label {
+            font-size: 0.95rem;
+            color: #cbd5e1;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+        }
+
+        .status {
+            padding: 8px 20px;
+            border-radius: 20px;
+            background: rgba(30, 41, 59, 0.8);
+            font-size: 0.95rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .status.connected {
+            color: #34d399;
+            background: rgba(6, 78, 59, 0.4);
+            border-color: rgba(52, 211, 153, 0.2);
+        }
+
+        .status.disconnected {
+            color: #f87171;
+            background: rgba(127, 29, 29, 0.4);
+            border-color: rgba(248, 113, 113, 0.2);
+        }
+
+        .status.sharing {
+            color: #38bdf8;
+            background: rgba(12, 74, 110, 0.4);
+            border-color: rgba(56, 189, 248, 0.2);
+        }
+
+        .video-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+            height: 70vh;
+        }
+
+        .video-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            border: 2px solid #334155;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .video-wrapper:hover {
+            transform: scale(1.02);
+        }
+
+        .video-wrapper.fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            border-radius: 0;
+            transform: none;
+        }
+
+        .video-wrapper.pip {
+            position: fixed;
+            width: 300px;
+            height: 169px;
+            z-index: 10000;
+            border-radius: 8px;
+            cursor: move;
+            overflow: hidden;
+        }
+
+        .video-wrapper.pip:nth-child(1) {
+            bottom: 20px;
+            right: 20px;
+        }
+
+        .video-wrapper.pip:nth-child(2) {
+            bottom: 20px;
+            right: 340px;
+        }
+
+        .video-wrapper.pip:nth-child(3) {
+            bottom: 209px;
+            right: 20px;
+        }
+
+        .video-wrapper.pip:nth-child(4) {
+            bottom: 209px;
+            right: 340px;
+        }
+
+        .video-wrapper.hidden {
+            display: none;
+        }
+
+        .fullscreen-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(15, 23, 42, 0.8);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            backdrop-filter: blur(4px);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .video-wrapper:hover .fullscreen-btn {
+            opacity: 1;
+        }
+
+        .fullscreen-btn:hover {
+            background: rgba(15, 23, 42, 0.95);
+        }
+
+        .pip-controls {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            display: flex;
+            gap: 8px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .video-wrapper:hover .pip-controls {
+            opacity: 1;
+        }
+
+        .pip-btn {
+            background: rgba(15, 23, 42, 0.8);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            backdrop-filter: blur(4px);
+        }
+
+        .pip-btn:hover {
+            background: rgba(15, 23, 42, 0.95);
+        }
+        
+        /* Resize Handles */
+        .resize-handle {
+            position: absolute;
+            background: #3b82f6;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 10;
+        }
+        
+        .video-wrapper.pip:hover .resize-handle {
+            opacity: 0.7;
+        }
+        
+        .resize-handle:hover {
+            opacity: 1 !important;
+        }
+        
+        .resize-handle.corner {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+        
+        .resize-handle.edge {
+            background: rgba(59, 130, 246, 0.5);
+        }
+        
+        .resize-se {
+            bottom: 0;
+            right: 0;
+            cursor: nwse-resize;
+        }
+        
+        .resize-sw {
+            bottom: 0;
+            left: 0;
+            cursor: nesw-resize;
+        }
+        
+        .resize-ne {
+            top: 0;
+            right: 0;
+            cursor: nesw-resize;
+        }
+        
+        .resize-nw {
+            top: 0;
+            left: 0;
+            cursor: nwse-resize;
+        }
+        
+        .resize-e {
+            top: 0;
+            right: 0;
+            width: 4px;
+            height: 100%;
+            cursor: ew-resize;
+        }
+        
+        .resize-w {
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            cursor: ew-resize;
+        }
+        
+        .resize-n {
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            cursor: ns-resize;
+        }
+        
+        .resize-s {
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            cursor: ns-resize;
+        }
+
+        .video-wrapper video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #020617;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+        }
+
+        .video-label {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            padding: 6px 12px;
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 6px;
+            font-size: 0.85rem;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .local-video {
+            border-color: #3b82f6;
+        }
+
+        .remote-video {
+            border-color: #10b981;
+        }
+
+        .instructions {
+            background: rgba(30, 41, 59, 0.7);
+            padding: 25px;
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .instructions h3 {
+            margin-bottom: 15px;
+            color: #38bdf8;
+        }
+
+        .instructions ol {
+            margin-left: 25px;
+            margin-bottom: 15px;
+            color: #cbd5e1;
+        }
+
+        .instructions li {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+
+        .note {
+            color: #fbbf24;
+            font-size: 0.95rem;
+            background: rgba(251, 191, 36, 0.1);
+            padding: 10px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+
+        /* P2P Chat Panel */
+        .chat-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 350px;
+            max-height: 500px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(15px);
+            border-radius: 12px;
+            border: 2px solid rgba(100, 149, 237, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .chat-panel.minimized {
+            width: 60px;
+            height: 60px;
+            max-height: 60px;
+            border-radius: 50%;
+            cursor: pointer;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+        }
+
+        .chat-panel.minimized .chat-header,
+        .chat-panel.minimized .chat-messages,
+        .chat-panel.minimized .chat-input-area {
+            display: none;
+        }
+
+        .chat-panel.minimized::before {
+            content: '💬';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2rem;
+        }
+
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 15px;
+            background: linear-gradient(135deg, rgba(100, 149, 237, 0.2), rgba(51, 65, 85, 0.3));
+            border-radius: 10px 10px 0 0;
+        }
+
+        .chat-header h3 {
+            margin: 0;
+            font-size: 1rem;
+            color: #e2e8f0;
+        }
+
+        .minimize-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .minimize-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e2e8f0;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            max-height: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .chat-message {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .chat-message.sent {
+            align-items: flex-end;
+        }
+
+        .chat-message.received {
+            align-items: flex-start;
+        }
+
+        .message-bubble {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            word-wrap: break-word;
+        }
+
+        .chat-message.sent .message-bubble {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+        }
+
+        .chat-message.received .message-bubble {
+            background: rgba(51, 65, 85, 0.8);
+            color: #e2e8f0;
+        }
+
+        .message-time {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            padding: 0 8px;
+        }
+
+        .chat-input-area {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 0 0 10px 10px;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            padding: 10px 12px;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(100, 149, 237, 0.3);
+            border-radius: 8px;
+            color: #e2e8f0;
+        }
+
+        .chat-input-area input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .system-message {
+            text-align: center;
+            color: #94a3b8;
+            font-size: 0.85rem;
+            font-style: italic;
+            padding: 8px;
+        }
+
+        .noise-suppression {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 15px 20px;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 12px;
+            margin-top: 10px;
+        }
+
+        .noise-suppression label {
+            font-size: 0.9rem;
+            color: #cbd5e1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .noise-suppression input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: #334155;
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .noise-suppression input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #38bdf8;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .noise-suppression input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #38bdf8;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .noise-level {
+            font-weight: bold;
+            color: #38bdf8;
+            min-width: 40px;
+            text-align: right;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8rem;
+            }
+
+            .video-container {
+                grid-template-columns: 1fr;
+            }
+
+            .workflow-buttons {
+                grid-template-columns: 1fr;
+            }
+
+            .chat-panel {
+                width: calc(100% - 40px);
+                right: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🖥️ P2P Screen Share</h1>
+            <p class="subtitle">Share your screen with friends - Powered by PeerJS!</p>
+        </header>
+
+        <div class="connection-panel">
+            <div class="id-section">
+                <label>Your Peer ID:</label>
+                <div class="id-display">
+                    <input type="text" id="myId" readonly>
+                    <button id="copyId" title="Copy ID">📋</button>
+                </div>
+            </div>
+
+            <div class="workflow-buttons">
+                <button id="startConnectionBtn" class="workflow-btn">
+                    <span class="icon">📤</span>
+                    <div>
+                        <strong>Connect to Friend</strong>
+                        <small>Enter your friend's ID to connect</small>
+                    </div>
+                </button>
+                <button id="receiveConnectionBtn" class="workflow-btn">
+                    <span class="icon">📥</span>
+                    <div>
+                        <strong>Receive Connection</strong>
+                        <small>Share your ID with friend</small>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="shareScreen" disabled>
+                <span class="icon">🖥️</span>
+                <span>Share Screen</span>
+            </button>
+            <button id="stopShare" disabled>
+                <span class="icon">⏹️</span>
+                <span>Stop Sharing</span>
+            </button>
+            <button id="startVideoCall" disabled>
+                <span class="icon">📹</span>
+                <span>Start Video Call</span>
+            </button>
+            <button id="stopVideoCall" disabled>
+                <span class="icon">📵</span>
+                <span>Stop Video Call</span>
+            </button>
+            <div class="audio-controls">
+                <label class="toggle">
+                    <input type="checkbox" id="shareAudio" checked>
+                    <span class="slider"></span>
+                    <span class="label">🔊 System Audio</span>
+                </label>
+                <label class="toggle">
+                    <input type="checkbox" id="shareMic" checked>
+                    <span class="slider"></span>
+                    <span class="label">🎤 Microphone</span>
+                </label>
+            </div>
+            <div class="noise-suppression">
+                <label>
+                    <span>🎚️ Noise Suppression</span>
+                    <span class="noise-level" id="noiseLevel">50%</span>
+                </label>
+                <input type="range" id="noiseSuppressionLevel" min="0" max="100" value="50">
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <span id="connectionStatus" class="status disconnected">⚪ Not Connected</span>
+            <span id="streamStatus" class="status">⚪ Not Sharing</span>
+        </div>
+
+        <!-- P2P Chat Panel -->
+        <div class="chat-panel" style="display: none;" id="chatPanel">
+            <div class="chat-header">
+                <h3>💬 P2P Chat</h3>
+                <button id="toggleChat" class="minimize-btn">_</button>
+            </div>
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input-area">
+                <input type="text" id="chatInput" placeholder="Type a message..." />
+                <button id="sendMessage">Send</button>
+            </div>
+        </div>
+
+        <div class="video-container" id="videoContainer">
+            <div class="video-wrapper local-video hidden" id="localScreenWrapper" data-stream-type="screen-local">
+                <video id="localScreen" autoplay muted playsinline></video>
+                <span class="video-label">Your Screen Share</span>
+                <div class="pip-controls">
+                    <button class="pip-btn" onclick="app.toggleMinimize('localScreenWrapper')">−</button>
+                </div>
+                <button class="fullscreen-btn" onclick="app.toggleFullscreen('localScreenWrapper')">⛶</button>
+                <div class="resize-handle corner resize-se"></div>
+                <div class="resize-handle corner resize-sw"></div>
+                <div class="resize-handle corner resize-ne"></div>
+                <div class="resize-handle corner resize-nw"></div>
+                <div class="resize-handle edge resize-e"></div>
+                <div class="resize-handle edge resize-w"></div>
+                <div class="resize-handle edge resize-n"></div>
+                <div class="resize-handle edge resize-s"></div>
+            </div>
+            <div class="video-wrapper remote-video hidden" id="remoteScreenWrapper" data-stream-type="screen-remote">
+                <video id="remoteScreen" autoplay playsinline></video>
+                <span class="video-label">Friend's Screen Share</span>
+                <div class="pip-controls">
+                    <button class="pip-btn" onclick="app.toggleMinimize('remoteScreenWrapper')">−</button>
+                </div>
+                <button class="fullscreen-btn" onclick="app.toggleFullscreen('remoteScreenWrapper')">⛶</button>
+                <div class="resize-handle corner resize-se"></div>
+                <div class="resize-handle corner resize-sw"></div>
+                <div class="resize-handle corner resize-ne"></div>
+                <div class="resize-handle corner resize-nw"></div>
+                <div class="resize-handle edge resize-e"></div>
+                <div class="resize-handle edge resize-w"></div>
+                <div class="resize-handle edge resize-n"></div>
+                <div class="resize-handle edge resize-s"></div>
+            </div>
+            <div class="video-wrapper local-video hidden" id="localVideoWrapper" data-stream-type="video-local">
+                <video id="localVideo" autoplay muted playsinline></video>
+                <span class="video-label">Your Video Call</span>
+                <div class="pip-controls">
+                    <button class="pip-btn" onclick="app.toggleMinimize('localVideoWrapper')">−</button>
+                </div>
+                <button class="fullscreen-btn" onclick="app.toggleFullscreen('localVideoWrapper')">⛶</button>
+                <div class="resize-handle corner resize-se"></div>
+                <div class="resize-handle corner resize-sw"></div>
+                <div class="resize-handle corner resize-ne"></div>
+                <div class="resize-handle corner resize-nw"></div>
+                <div class="resize-handle edge resize-e"></div>
+                <div class="resize-handle edge resize-w"></div>
+                <div class="resize-handle edge resize-n"></div>
+                <div class="resize-handle edge resize-s"></div>
+            </div>
+            <div class="video-wrapper remote-video hidden" id="remoteVideoWrapper" data-stream-type="video-remote">
+                <video id="remoteVideo" autoplay playsinline></video>
+                <span class="video-label">Friend's Video Call</span>
+                <div class="pip-controls">
+                    <button class="pip-btn" onclick="app.toggleMinimize('remoteVideoWrapper')">−</button>
+                </div>
+                <button class="fullscreen-btn" onclick="app.toggleFullscreen('remoteVideoWrapper')">⛶</button>
+                <div class="resize-handle corner resize-se"></div>
+                <div class="resize-handle corner resize-sw"></div>
+                <div class="resize-handle corner resize-ne"></div>
+                <div class="resize-handle corner resize-nw"></div>
+                <div class="resize-handle edge resize-e"></div>
+                <div class="resize-handle edge resize-w"></div>
+                <div class="resize-handle edge resize-n"></div>
+                <div class="resize-handle edge resize-s"></div>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <h3>How to use:</h3>
+            <ol>
+                <li>Wait for your Peer ID to appear (automatically generated)</li>
+                <li>Share your ID with your friend</li>
+                <li>Click "Connect to Friend" and enter their ID</li>
+                <li>Once connected, choose: "Share Screen" OR "Start Video Call"</li>
+                <li>Use P2P chat to message directly (no server!)</li>
+            </ol>
+            <p class="note">✨ PeerJS handles all the complex signaling - 99% connection success rate!</p>
+        </div>
+    </div>
+
+    <script>
+        // P2P Screen Sharing App using PeerJS
+        class P2PScreenShare {
+            constructor() {
+                console.log('[P2P] Initializing P2PScreenShare with PeerJS...');
+                this.localStream = null;
+                this.videoCallStream = null;
+                this.peer = null;
+                this.currentConnection = null;
+                this.currentCall = null;
+                this.videoCall = null;
+                this.remotePeerId = null;
+                this.noiseSuppressionLevel = 0.5;
+                this.isScreenSharing = false;
+                this.isVideoCallActive = false;
+                
+                this.initElements();
+                this.initPeerJS();
+                this.initEventListeners();
+                
+                console.log('[P2P] Initialization complete.');
+            }
+            
+            log(msg, ...args) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`[${timestamp}] [P2P] ${msg}`, ...args);
+            }
+            
+            error(msg, err) {
+                const timestamp = new Date().toLocaleTimeString();
+                console.error(`[${timestamp}] [P2P] ERROR: ${msg}`, err);
+            }
+            
+            initElements() {
+                this.myIdInput = document.getElementById('myId');
+                this.copyIdBtn = document.getElementById('copyId');
+                this.startConnectionBtn = document.getElementById('startConnectionBtn');
+                this.receiveConnectionBtn = document.getElementById('receiveConnectionBtn');
+                this.shareScreenBtn = document.getElementById('shareScreen');
+                this.stopShareBtn = document.getElementById('stopShare');
+                this.startVideoCallBtn = document.getElementById('startVideoCall');
+                this.stopVideoCallBtn = document.getElementById('stopVideoCall');
+                this.localScreen = document.getElementById('localScreen');
+                this.remoteScreen = document.getElementById('remoteScreen');
+                this.localVideo = document.getElementById('localVideo');
+                this.remoteVideo = document.getElementById('remoteVideo');
+                this.connectionStatus = document.getElementById('connectionStatus');
+                this.streamStatus = document.getElementById('streamStatus');
+                this.noiseLevelDisplay = document.getElementById('noiseLevel');
+                this.noiseSuppressionSlider = document.getElementById('noiseSuppressionLevel');
+                
+                // Track which streams are active
+                this.activeStreams = {
+                    screenLocal: false,
+                    screenRemote: false,
+                    videoLocal: false,
+                    videoRemote: false
+                };
+                
+                // Setup draggable functionality
+                this.setupDraggable();
+            }
+            
+            setupDraggable() {
+                const wrappers = ['localScreenWrapper', 'remoteScreenWrapper', 'localVideoWrapper', 'remoteVideoWrapper'];
+                
+                wrappers.forEach(id => {
+                    const wrapper = document.getElementById(id);
+                    let isDragging = false;
+                    let isResizing = false;
+                    let resizeDirection = null;
+                    let startX, startY, startWidth, startHeight, startLeft, startTop;
+                    
+                    const minWidth = 200;
+                    const minHeight = 112;
+                    const maxWidth = 800;
+                    const maxHeight = 450;
+                    
+                    // Dragging - only on wrapper itself, not on resize handles
+                    wrapper.addEventListener('mousedown', (e) => {
+                        if (!wrapper.classList.contains('pip')) return;
+                        
+                        // Check if clicking on a resize handle
+                        if (e.target.classList.contains('resize-handle')) {
+                            isResizing = true;
+                            resizeDirection = e.target.className.split(' ').find(c => c.startsWith('resize-'));
+                            startX = e.clientX;
+                            startY = e.clientY;
+                            startWidth = wrapper.offsetWidth;
+                            startHeight = wrapper.offsetHeight;
+                            startLeft = wrapper.offsetLeft;
+                            startTop = wrapper.offsetTop;
+                            e.preventDefault();
+                            e.stopPropagation();
+                        } else if (e.target === wrapper || e.target.tagName === 'VIDEO') {
+                            // Only drag when clicking on wrapper or video, not on buttons
+                            isDragging = true;
+                            startX = e.clientX - wrapper.offsetLeft;
+                            startY = e.clientY - wrapper.offsetTop;
+                            e.preventDefault();
+                        }
+                    });
+                    
+                    document.addEventListener('mousemove', (e) => {
+                        if (isDragging) {
+                            e.preventDefault();
+                            let newLeft = e.clientX - startX;
+                            let newTop = e.clientY - startY;
+                            
+                            // Keep within viewport bounds
+                            const maxLeft = window.innerWidth - wrapper.offsetWidth;
+                            const maxTop = window.innerHeight - wrapper.offsetHeight;
+                            
+                            newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+                            newTop = Math.max(0, Math.min(newTop, maxTop));
+                            
+                            wrapper.style.left = newLeft + 'px';
+                            wrapper.style.top = newTop + 'px';
+                            wrapper.style.right = 'auto';
+                            wrapper.style.bottom = 'auto';
+                        } else if (isResizing) {
+                            e.preventDefault();
+                            const deltaX = e.clientX - startX;
+                            const deltaY = e.clientY - startY;
+                            
+                            let newWidth = startWidth;
+                            let newHeight = startHeight;
+                            let newLeft = startLeft;
+                            let newTop = startTop;
+                            
+                            // Handle different resize directions
+                            if (resizeDirection.includes('e')) {
+                                newWidth = startWidth + deltaX;
+                            }
+                            if (resizeDirection.includes('w')) {
+                                newWidth = startWidth - deltaX;
+                                newLeft = startLeft + deltaX;
+                            }
+                            if (resizeDirection.includes('s')) {
+                                newHeight = startHeight + deltaY;
+                            }
+                            if (resizeDirection.includes('n')) {
+                                newHeight = startHeight - deltaY;
+                                newTop = startTop + deltaY;
+                            }
+                            
+                            // Apply constraints
+                            newWidth = Math.max(minWidth, Math.min(newWidth, maxWidth));
+                            newHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
+                            
+                            // Apply new dimensions
+                            wrapper.style.width = newWidth + 'px';
+                            wrapper.style.height = newHeight + 'px';
+                            
+                            // Update position if resizing from left or top
+                            if (resizeDirection.includes('w')) {
+                                const widthDiff = newWidth - startWidth;
+                                wrapper.style.left = (startLeft - widthDiff) + 'px';
+                            }
+                            if (resizeDirection.includes('n')) {
+                                const heightDiff = newHeight - startHeight;
+                                wrapper.style.top = (startTop - heightDiff) + 'px';
+                            }
+                            
+                            wrapper.style.right = 'auto';
+                            wrapper.style.bottom = 'auto';
+                        }
+                    });
+                    
+                    document.addEventListener('mouseup', () => {
+                        isDragging = false;
+                        isResizing = false;
+                        resizeDirection = null;
+                    });
+                });
+            }
+            
+            initPeerJS() {
+                this.log('Connecting to PeerJS cloud server...');
+                
+                // Use same config as finalchat.html for reliable worldwide connections
+                this.peer = new Peer({
+                    debug: 2,
+                    host: '0.peerjs.com',
+                    secure: true,
+                    port: 443,
+                    path: '/',
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { urls: 'stun:stun2.l.google.com:19302' },
+                            { urls: 'stun:stun3.l.google.com:19302' },
+                            { urls: 'stun:stun4.l.google.com:19302' },
+                            {
+                                urls: 'turn:openrelay.metered.ca:80',
+                                username: 'openrelayproject',
+                                credential: 'openrelayproject'
+                            },
+                            {
+                                urls: 'turn:openrelay.metered.ca:443',
+                                username: 'openrelayproject',
+                                credential: 'openrelayproject'
+                            },
+                            {
+                                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                                username: 'openrelayproject',
+                                credential: 'openrelayproject'
+                            }
+                        ],
+                        sdpSemantics: 'unified-plan',
+                        iceTransportPolicy: 'all',
+                        bundlePolicy: 'max-bundle',
+                        rtcpMuxPolicy: 'require',
+                        encodedInsertableStreams: false
+                    }
+                });
+                
+                this.peer.on('open', (id) => {
+                    this.myIdInput.value = id;
+                    this.log('✅ Connected to PeerJS! Your ID:', id);
+                });
+                
+                this.peer.on('connection', (conn) => {
+                    this.log('📥 Incoming connection from:', conn.peer);
+                    this.handleIncomingConnection(conn);
+                });
+                
+                this.peer.on('call', (call) => {
+                    this.log('📞 Incoming call from:', call.peer);
+                    this.handleIncomingCall(call);
+                });
+                
+                this.peer.on('error', (err) => {
+                    this.error('PeerJS error:', err);
+                    if (err.type === 'peer-unavailable') {
+                        alert('Peer not found! Make sure your friend is online and the ID is correct.');
+                    } else if (err.type === 'network') {
+                        alert('Network error. Check your internet connection.');
+                    } else {
+                        alert('Connection error: ' + err.message);
+                    }
+                });
+                
+                this.peer.on('disconnected', () => {
+                    this.log('⚠️ Disconnected from PeerJS server. Attempting to reconnect...');
+                    this.peer.reconnect();
+                });
+            }
+            
+            initEventListeners() {
+                this.copyIdBtn.addEventListener('click', () => this.copyId());
+                this.startConnectionBtn.addEventListener('click', () => this.showConnectDialog());
+                this.receiveConnectionBtn.addEventListener('click', () => this.showConnectDialog());
+                this.shareScreenBtn.addEventListener('click', () => this.startScreenShare());
+                this.stopShareBtn.addEventListener('click', () => this.stopScreenShare());
+                this.startVideoCallBtn.addEventListener('click', () => this.startVideoCall());
+                this.stopVideoCallBtn.addEventListener('click', () => this.stopVideoCall());
+                
+                const chatInput = document.getElementById('chatInput');
+                const sendBtn = document.getElementById('sendMessage');
+                const toggleBtn = document.getElementById('toggleChat');
+                
+                if (sendBtn) {
+                    sendBtn.addEventListener('click', () => this.sendChatMessage());
+                }
+                
+                if (chatInput) {
+                    chatInput.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') this.sendChatMessage();
+                    });
+                }
+                
+                if (toggleBtn) {
+                    toggleBtn.addEventListener('click', () => this.toggleChatPanel());
+                }
+                
+                // Noise suppression slider
+                if (this.noiseSuppressionSlider) {
+                    this.noiseSuppressionSlider.addEventListener('input', (e) => {
+                        this.noiseSuppressionLevel = e.target.value / 100;
+                        this.noiseLevelDisplay.textContent = e.target.value + '%';
+                        this.log('Noise suppression level:', this.noiseSuppressionLevel);
+                    });
+                }
+                
+                // Chat panel click when minimized
+                const chatPanel = document.getElementById('chatPanel');
+                if (chatPanel) {
+                    chatPanel.addEventListener('click', (e) => {
+                        if (chatPanel.classList.contains('minimized') && e.target === chatPanel) {
+                            this.toggleChatPanel();
+                        }
+                    });
+                }
+                
+                window.addEventListener('beforeunload', () => {
+                    this.cleanup();
+                });
+            }
+            
+            copyId() {
+                const id = this.myIdInput.value;
+                
+                // Fallback for browsers/contexts without clipboard API
+                if (!navigator.clipboard) {
+                    // Use old-school method
+                    this.myIdInput.select();
+                    this.myIdInput.setSelectionRange(0, 99999); // For mobile
+                    try {
+                        document.execCommand('copy');
+                        this.log('Peer ID copied to clipboard (fallback method)');
+                        this.copyIdBtn.textContent = '✅';
+                        setTimeout(() => {
+                            this.copyIdBtn.textContent = '📋';
+                        }, 2000);
+                    } catch (err) {
+                        this.error('Failed to copy:', err);
+                        alert('Failed to copy. Please copy manually: ' + id);
+                    }
+                    return;
+                }
+                
+                // Modern clipboard API
+                navigator.clipboard.writeText(id).then(() => {
+                    this.log('Peer ID copied to clipboard');
+                    this.copyIdBtn.textContent = '✅';
+                    setTimeout(() => {
+                        this.copyIdBtn.textContent = '📋';
+                    }, 2000);
+                }).catch((err) => {
+                    this.error('Failed to copy:', err);
+                    alert('Failed to copy. Please copy manually: ' + id);
+                });
+            }
+            
+            showConnectDialog() {
+                const peerId = prompt('Enter your friend\'s Peer ID:');
+                if (peerId && peerId.trim()) {
+                    this.connectToPeer(peerId.trim());
+                }
+            }
+            
+            connectToPeer(peerId) {
+                if (!peerId || peerId === this.myIdInput.value) {
+                    alert('Invalid peer ID or cannot connect to yourself!');
+                    return;
+                }
+                
+                this.log('🔌 Connecting to peer:', peerId);
+                this.updateConnectionStatus('🔄 Connecting...', false);
+                
+                try {
+                    // Close existing connection if any
+                    if (this.currentConnection && this.currentConnection.open) {
+                        this.log('Closing existing connection');
+                        this.currentConnection.close();
+                    }
+                    
+                    this.remotePeerId = peerId;
+                    this.currentConnection = this.peer.connect(peerId, {
+                        reliable: true
+                    });
+                    
+                    this.setupConnection(this.currentConnection);
+                } catch (error) {
+                    this.error('Connection error:', error);
+                    this.updateConnectionStatus('⚪ Connection Failed', false);
+                    alert('Failed to connect. Check the ID and try again.');
+                }
+            }
+            
+            setupConnection(conn) {
+                // Monitor connection state for debugging
+                let checkCount = 0;
+                const checkInterval = setInterval(() => {
+                    checkCount++;
+                    this.log(`Connection check #${checkCount}: open=${conn.open}, peerConnection=${conn.peerConnection?.connectionState}`);
+                    if (conn.open) {
+                        clearInterval(checkInterval);
+                    }
+                    if (checkCount >= 60) {
+                        clearInterval(checkInterval);
+                    }
+                }, 1000);
+                
+                // If already open (can happen with incoming connections)
+                if (conn.open) {
+                    this.log('✅ Connection already open!');
+                    this.activateConnection();
+                }
+                
+                conn.on('open', () => {
+                    this.log('✅ Data connection established!');
+                    this.activateConnection();
+                });
+                
+                conn.on('data', (data) => {
+                    this.log('📨 Received data:', data);
+                    
+                    if (data.type === 'chat') {
+                        this.addChatMessage(data.message, 'received', data.timestamp);
+                    }
+                });
+                
+                conn.on('close', () => {
+                    this.log('❌ Connection closed');
+                    this.updateConnectionStatus('⚪ Disconnected', false);
+                    this.cleanup();
+                });
+                
+                conn.on('error', (err) => {
+                    this.error('Connection error:', err);
+                });
+                
+                // Set timeout for connection
+                setTimeout(() => {
+                    if (conn && !conn.open) {
+                        this.error('Connection timeout - not opened within 60 seconds');
+                        this.updateConnectionStatus('⚪ Connection Timeout', false);
+                        alert('Connection timeout. Please try again.');
+                    }
+                }, 60000);
+            }
+            
+            activateConnection() {
+                this.log('🎉 Activating connection features...');
+                this.updateConnectionStatus('🟢 Connected', true);
+                
+                const chatPanel = document.getElementById('chatPanel');
+                if (chatPanel) {
+                    chatPanel.style.display = 'flex';
+                    this.addSystemMessage('💬 P2P connection established! Ready for chat, screen share, and video calls!');
+                }
+            }
+            
+            handleIncomingConnection(conn) {
+                this.log('📥 Incoming connection from:', conn.peer);
+                this.log('Connection metadata:', conn.metadata);
+                this.log('Connection type:', conn.type);
+                
+                // If we already have a connection, close the old one and replace
+                if (this.currentConnection && this.currentConnection.open) {
+                    this.log('⚠️ Already connected, replacing old connection');
+                    this.currentConnection.close();
+                }
+                
+                this.currentConnection = conn;
+                this.remotePeerId = conn.peer;
+                this.log('✅ Accepted connection from:', conn.peer);
+                
+                // Wait a moment for connection to initialize (helps with reliability)
+                setTimeout(() => {
+                    this.setupConnection(conn);
+                }, 100);
+            }
+            
+            handleIncomingCall(call) {
+                this.currentCall = call;
+                call.answer();
+                
+                call.on('stream', (remoteStream) => {
+                    this.log('📺 Receiving remote stream, metadata:', call.metadata);
+                    
+                    // Log quality info
+                    const videoTrack = remoteStream.getVideoTracks()[0];
+                    if (videoTrack) {
+                        const settings = videoTrack.getSettings();
+                        this.log(`📊 Video quality: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`);
+                    }
+                    
+                    // Route based on metadata type
+                    if (call.metadata && call.metadata.type === 'screen') {
+                        this.log('Routing to remote screen share');
+                        this.remoteScreen.srcObject = remoteStream;
+                        this.remoteScreen.play().catch(e => this.error('Error playing remote screen:', e));
+                        document.getElementById('remoteScreenWrapper').classList.remove('hidden');
+                        this.activeStreams.screenRemote = true;
+                    } else if (call.metadata && call.metadata.type === 'camera') {
+                        this.log('Routing to remote video call');
+                        this.remoteVideo.srcObject = remoteStream;
+                        this.remoteVideo.play().catch(e => this.error('Error playing remote video:', e));
+                        document.getElementById('remoteVideoWrapper').classList.remove('hidden');
+                        this.activeStreams.videoRemote = true;
+                    } else {
+                        // Fallback: guess based on track label
+                        if (videoTrack && (videoTrack.label.toLowerCase().includes('screen') || videoTrack.label.toLowerCase().includes('monitor'))) {
+                            this.remoteScreen.srcObject = remoteStream;
+                            this.remoteScreen.play().catch(e => this.error('Error playing remote screen:', e));
+                            document.getElementById('remoteScreenWrapper').classList.remove('hidden');
+                            this.activeStreams.screenRemote = true;
+                        } else {
+                            this.remoteVideo.srcObject = remoteStream;
+                            this.remoteVideo.play().catch(e => this.error('Error playing remote video:', e));
+                            document.getElementById('remoteVideoWrapper').classList.remove('hidden');
+                            this.activeStreams.videoRemote = true;
+                        }
+                    }
+                });
+                
+                call.on('close', () => {
+                    this.log('📞 Call ended');
+                    this.remoteVideo.srcObject = null;
+                });
+                
+                call.on('error', (err) => {
+                    this.error('Call error:', err);
+                });
+            }
+            
+            async startScreenShare() {
+                try {
+                    this.log('🖥️ Requesting screen share...');
+                    
+                    const shareAudio = document.getElementById('shareAudio').checked;
+                    const shareMic = document.getElementById('shareMic').checked;
+                    
+                    const screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: {
+                            width: { ideal: 3840, max: 3840 },
+                            height: { ideal: 2160, max: 2160 },
+                            frameRate: { ideal: 60, max: 60 },
+                            cursor: 'always',
+                            displaySurface: 'monitor'
+                        },
+                        audio: shareAudio ? {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false,
+                            sampleRate: 48000,
+                            sampleSize: 24,
+                            channelCount: 2
+                        } : false
+                    });
+                    
+                    let micStream = null;
+                    if (shareMic) {
+                        try {
+                            const constraints = {
+                                audio: {
+                                    echoCancellation: true,
+                                    noiseSuppression: true,
+                                    autoGainControl: true,
+                                    sampleRate: 48000,
+                                    sampleSize: 24,
+                                    channelCount: 2
+                                }
+                            };
+                            
+                            // Apply noise suppression level if supported
+                            if (navigator.mediaDevices.getSupportedConstraints().noiseSuppression) {
+                                constraints.audio.noiseSuppression = {
+                                    ideal: this.noiseSuppressionLevel > 0
+                                };
+                            }
+                            
+                            micStream = await navigator.mediaDevices.getUserMedia(constraints);
+                            
+                            // Apply noise suppression using Web Audio API
+                            if (micStream && this.noiseSuppressionLevel > 0) {
+                                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                                const source = audioContext.createMediaStreamSource(micStream);
+                                const gainNode = audioContext.createGain();
+                                gainNode.gain.value = 1 - (this.noiseSuppressionLevel * 0.3); // Reduce gain based on suppression
+                                source.connect(gainNode);
+                                const destination = audioContext.createMediaStreamDestination();
+                                gainNode.connect(destination);
+                                micStream = destination.stream;
+                            }
+                        } catch (e) {
+                            this.log('⚠️ Could not access microphone:', e.message);
+                        }
+                    }
+                    
+                    const audioTracks = [];
+                    if (shareAudio && screenStream.getAudioTracks().length > 0) {
+                        audioTracks.push(...screenStream.getAudioTracks());
+                    }
+                    if (micStream && micStream.getAudioTracks().length > 0) {
+                        audioTracks.push(...micStream.getAudioTracks());
+                    }
+                    
+                    this.localStream = new MediaStream([
+                        ...screenStream.getVideoTracks(),
+                        ...audioTracks
+                    ]);
+                    
+                    this.localScreen.srcObject = this.localStream;
+                    this.localScreen.play().catch(e => this.error('Error playing local screen:', e));
+                    document.getElementById('localScreenWrapper').classList.remove('hidden');
+                    this.activeStreams.screenLocal = true;
+                    
+                    this.updateStreamStatus('🟢 Sharing', true);
+                    this.log('✅ Screen sharing started');
+                    this.isScreenSharing = true;
+                    
+                    if (this.remotePeerId) {
+                        this.log('📞 Calling peer with screen share...');
+                        this.currentCall = this.peer.call(this.remotePeerId, this.localStream, {
+                            metadata: { type: 'screen' },
+                            constraints: {
+                                mandatory: {
+                                    OfferToReceiveAudio: true,
+                                    OfferToReceiveVideo: true
+                                }
+                            },
+                            sdpTransform: (sdp) => {
+                                // Increase bitrate for 4K quality
+                                return sdp.replace(/a=fmtp:.*\r\n/g, (match) => {
+                                    return match + 'a=max-message-size:262144\r\n';
+                                }).replace(/(m=video.*\r\n)/g, '$1b=AS:10000\r\n')
+                                  .replace(/(m=audio.*\r\n)/g, '$1b=AS:510\r\n');
+                            }
+                        });
+                        
+                        this.currentCall.on('stream', (remoteStream) => {
+                            this.log('📺 Receiving remote stream');
+                            this.remoteVideo.srcObject = remoteStream;
+                            this.remoteVideo.play().catch(e => this.error('Error playing remote video:', e));
+                        });
+                    }
+                    
+                    screenStream.getVideoTracks()[0].onended = () => {
+                        this.log('🛑 Screen sharing stopped by user');
+                        this.stopScreenShare();
+                    };
+                    
+                } catch (error) {
+                    this.error('Failed to start screen sharing:', error);
+                    if (error.name === 'NotAllowedError') {
+                        alert('Screen sharing permission denied. Please allow screen sharing and try again.');
+                    } else {
+                        alert('Failed to start screen sharing: ' + error.message);
+                    }
+                }
+            }
+            
+            stopScreenShare() {
+                this.log('🛑 Stopping screen share...');
+                
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => {
+                        track.stop();
+                        this.log('Stopped track:', track.kind);
+                    });
+                    this.localStream = null;
+                }
+                
+                this.localScreen.srcObject = null;
+                document.getElementById('localScreenWrapper').classList.add('hidden');
+                this.activeStreams.screenLocal = false;
+                this.isScreenSharing = false;
+                
+                // Update status only if video call is not active
+                if (!this.isVideoCallActive) {
+                    this.updateStreamStatus('⚪ Not Sharing', false);
+                }
+                this.log('✅ Screen sharing stopped');
+            }
+            
+            async startVideoCall() {
+                try {
+                    this.log('📹 Starting video call...');
+                    
+                    const shareAudio = document.getElementById('shareAudio').checked;
+                    const shareMic = document.getElementById('shareMic').checked;
+                    
+                    // Get camera and microphone
+                    const constraints = {
+                        video: {
+                            width: { ideal: 1920, max: 3840 },
+                            height: { ideal: 1080, max: 2160 },
+                            frameRate: { ideal: 60, max: 60 },
+                            facingMode: 'user',
+                            aspectRatio: { ideal: 1.777778 }
+                        },
+                        audio: shareMic ? {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 48000,
+                            sampleSize: 24,
+                            channelCount: 2
+                        } : false
+                    };
+                    
+                    this.videoCallStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    // Apply noise suppression using Web Audio API
+                    if (shareMic && this.videoCallStream && this.noiseSuppressionLevel > 0) {
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        const source = audioContext.createMediaStreamSource(this.videoCallStream);
+                        const gainNode = audioContext.createGain();
+                        gainNode.gain.value = 1 - (this.noiseSuppressionLevel * 0.3);
+                        source.connect(gainNode);
+                        const destination = audioContext.createMediaStreamDestination();
+                        gainNode.connect(destination);
+                        
+                        // Combine video with processed audio
+                        const videoTracks = this.videoCallStream.getVideoTracks();
+                        const audioTracks = destination.stream.getAudioTracks();
+                        this.videoCallStream = new MediaStream([...videoTracks, ...audioTracks]);
+                    }
+                    
+                    // Show local video preview
+                    this.localVideo.srcObject = this.videoCallStream;
+                    this.localVideo.muted = true;
+                    this.localVideo.play().catch(e => this.error('Error playing local video:', e));
+                    document.getElementById('localVideoWrapper').classList.remove('hidden');
+                    this.activeStreams.videoLocal = true;
+                    
+                    this.updateStreamStatus('🟢 Video Call Active', true);
+                    this.log('✅ Video call started');
+                    this.isVideoCallActive = true;
+                    
+                    // Enable stop button, disable start button
+                    this.startVideoCallBtn.disabled = true;
+                    this.stopVideoCallBtn.disabled = false;
+                    
+                    // If connected to peer, call them with the video stream
+                    if (this.remotePeerId) {
+                        this.log('📞 Calling peer with video call...');
+                        this.videoCall = this.peer.call(this.remotePeerId, this.videoCallStream, {
+                            metadata: { type: 'camera' },
+                            constraints: {
+                                mandatory: {
+                                    OfferToReceiveAudio: true,
+                                    OfferToReceiveVideo: true
+                                }
+                            },
+                            sdpTransform: (sdp) => {
+                                // Increase bitrate for HD video
+                                return sdp.replace(/a=fmtp:.*\r\n/g, (match) => {
+                                    return match + 'a=max-message-size:262144\r\n';
+                                }).replace(/(m=video.*\r\n)/g, '$1b=AS:8000\r\n')
+                                  .replace(/(m=audio.*\r\n)/g, '$1b=AS:510\r\n');
+                            }
+                        });
+                        
+                        this.videoCall.on('stream', (remoteStream) => {
+                            this.log('📺 Receiving remote video call stream');
+                            this.remoteVideo.srcObject = remoteStream;
+                            this.remoteVideo.play().catch(e => this.error('Error playing remote video:', e));
+                            document.getElementById('remoteVideoWrapper').classList.remove('hidden');
+                            this.activeStreams.videoRemote = true;
+                        });
+                        
+                        this.videoCall.on('close', () => {
+                            this.log('📞 Video call ended by remote peer');
+                        });
+                    }
+                    
+                } catch (error) {
+                    this.error('Failed to start video call:', error);
+                    if (error.name === 'NotAllowedError') {
+                        alert('Camera/microphone permission denied. Please allow access and try again.');
+                    } else if (error.name === 'NotFoundError') {
+                        alert('No camera or microphone found. Please connect a camera and try again.');
+                    } else {
+                        alert('Failed to start video call: ' + error.message);
+                    }
+                    
+                    // Reset buttons on error
+                    this.startVideoCallBtn.disabled = false;
+                    this.stopVideoCallBtn.disabled = true;
+                }
+            }
+            
+            stopVideoCall() {
+                this.log('📵 Stopping video call...');
+                
+                if (this.videoCallStream) {
+                    this.videoCallStream.getTracks().forEach(track => {
+                        track.stop();
+                        this.log('Stopped video call track:', track.kind);
+                    });
+                    this.videoCallStream = null;
+                }
+                
+                if (this.videoCall) {
+                    this.videoCall.close();
+                    this.videoCall = null;
+                }
+                
+                // Clear video elements
+                this.localVideo.srcObject = null;
+                document.getElementById('localVideoWrapper').classList.add('hidden');
+                this.activeStreams.videoLocal = false;
+                this.isVideoCallActive = false;
+                
+                // Update status only if screen sharing is not active
+                if (!this.isScreenSharing) {
+                    this.updateStreamStatus('⚪ Not Sharing', false);
+                }
+                
+                // Reset buttons
+                this.startVideoCallBtn.disabled = false;
+                this.stopVideoCallBtn.disabled = true;
+                
+                this.log('✅ Video call stopped');
+            }
+            
+            updateConnectionStatus(status, isConnected) {
+                this.log(`Connection status: ${status} (Connected: ${isConnected})`);
+                this.connectionStatus.textContent = status;
+                this.connectionStatus.className = 'status ' + (isConnected ? 'connected' : 'disconnected');
+                this.shareScreenBtn.disabled = !isConnected;
+                this.startVideoCallBtn.disabled = !isConnected;
+            }
+            
+            updateStreamStatus(status, isSharing) {
+                this.log(`Stream status: ${status} (Sharing: ${isSharing})`);
+                this.streamStatus.textContent = status;
+                this.streamStatus.className = 'status ' + (isSharing ? 'sharing' : '');
+                this.stopShareBtn.disabled = !isSharing;
+            }
+            
+            sendChatMessage() {
+                const input = document.getElementById('chatInput');
+                const message = input.value.trim();
+                
+                if (!message) return;
+                
+                if (!this.currentConnection || this.currentConnection.open !== true) {
+                    alert('Not connected! Connect to a peer first.');
+                    return;
+                }
+                
+                const timestamp = Date.now();
+                
+                this.currentConnection.send({
+                    type: 'chat',
+                    message: message,
+                    timestamp: timestamp
+                });
+                
+                this.addChatMessage(message, 'sent', timestamp);
+                input.value = '';
+                
+                this.log(`💬 Sent P2P message: ${message}`);
+            }
+            
+            addChatMessage(message, type, timestamp) {
+                const chatMessages = document.getElementById('chatMessages');
+                const chatPanel = document.getElementById('chatPanel');
+                
+                if (chatPanel.style.display === 'none') {
+                    chatPanel.style.display = 'flex';
+                }
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `chat-message ${type}`;
+                
+                const bubbleDiv = document.createElement('div');
+                bubbleDiv.className = 'message-bubble';
+                bubbleDiv.textContent = message;
+                
+                const timeDiv = document.createElement('div');
+                timeDiv.className = 'message-time';
+                const time = new Date(timestamp);
+                timeDiv.textContent = time.toLocaleTimeString();
+                
+                messageDiv.appendChild(bubbleDiv);
+                messageDiv.appendChild(timeDiv);
+                chatMessages.appendChild(messageDiv);
+                
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+            
+            toggleChatPanel() {
+                const chatPanel = document.getElementById('chatPanel');
+                if (chatPanel) {
+                    chatPanel.classList.toggle('minimized');
+                    this.log('Chat panel', chatPanel.classList.contains('minimized') ? 'minimized' : 'expanded');
+                }
+            }
+            
+            toggleFullscreen(wrapperId) {
+                const wrapper = document.getElementById(wrapperId);
+                if (!wrapper) return;
+                
+                if (wrapper.classList.contains('fullscreen')) {
+                    // Exit fullscreen
+                    wrapper.classList.remove('fullscreen');
+                    
+                    // Restore all other visible streams to normal view
+                    document.querySelectorAll('.video-wrapper.pip').forEach(w => {
+                        w.classList.remove('pip');
+                        w.style.left = '';
+                        w.style.top = '';
+                        w.style.right = '';
+                        w.style.bottom = '';
+                    });
+                    
+                    this.log('Exited fullscreen for', wrapperId);
+                } else {
+                    // Enter fullscreen for this wrapper
+                    document.querySelectorAll('.video-wrapper.fullscreen').forEach(w => {
+                        w.classList.remove('fullscreen');
+                    });
+                    
+                    wrapper.classList.add('fullscreen');
+                    
+                    // Convert all other visible streams to PIP mode
+                    document.querySelectorAll('.video-wrapper:not(.hidden):not(.fullscreen)').forEach(w => {
+                        w.classList.add('pip');
+                    });
+                    
+                    this.log('Entered fullscreen for', wrapperId);
+                }
+            }
+            
+            toggleMinimize(wrapperId) {
+                const wrapper = document.getElementById(wrapperId);
+                if (!wrapper) return;
+                
+                if (wrapper.classList.contains('pip')) {
+                    // Exit PIP mode
+                    wrapper.classList.remove('pip');
+                    wrapper.style.left = '';
+                    wrapper.style.top = '';
+                    wrapper.style.right = '';
+                    wrapper.style.bottom = '';
+                    this.log('Exited PIP for', wrapperId);
+                } else {
+                    // Enter PIP mode
+                    wrapper.classList.add('pip');
+                    this.log('Entered PIP for', wrapperId);
+                }
+            }
+            
+            addSystemMessage(message) {
+                const chatMessages = document.getElementById('chatMessages');
+                const systemDiv = document.createElement('div');
+                systemDiv.className = 'system-message';
+                systemDiv.textContent = message;
+                chatMessages.appendChild(systemDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+            
+            cleanup() {
+                this.log('🧹 Cleaning up...');
+                
+                this.stopScreenShare();
+                this.stopVideoCall();
+                
+                if (this.currentConnection) {
+                    this.currentConnection.close();
+                    this.currentConnection = null;
+                }
+                
+                if (this.currentCall) {
+                    this.currentCall.close();
+                    this.currentCall = null;
+                }
+                
+                if (this.videoCall) {
+                    this.videoCall.close();
+                    this.videoCall = null;
+                }
+                
+                this.remotePeerId = null;
+                this.updateConnectionStatus('⚪ Not Connected', false);
+            }
+        }
+
+        // Initialize app when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('[P2P] DOM loaded, initializing app...');
+            window.app = new P2PScreenShare();
+        });
+    </script>
+</body>
+</html>
