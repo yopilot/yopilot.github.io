@@ -846,7 +846,7 @@
                     <span class="label">🔊 System Audio</span>
                 </label>
                 <label class="toggle">
-                    <input type="checkbox" id="shareMic" checked>
+                    <input type="checkbox" id="shareMic">
                     <span class="slider"></span>
                     <span class="label">🎤 Microphone</span>
                 </label>
@@ -959,6 +959,9 @@
                 this.localStream = null;
                 this.videoCallStream = null;
                 this.audioCallStream = null;
+                this.standaloneMicStream = null;
+                this.standaloneMicCall = null;
+                this.micAnswerStream = null;
                 this.peer = null;
                 this.currentConnection = null;
                 this.currentCall = null;
@@ -1297,6 +1300,20 @@
                     toggleBtn.addEventListener('click', () => this.toggleChatPanel());
                 }
                 
+                // Microphone toggle - allow turning mic on/off anytime
+                const micToggle = document.getElementById('shareMic');
+                if (micToggle) {
+                    micToggle.addEventListener('change', async (e) => {
+                        if (e.target.checked) {
+                            this.log('🎤 Microphone enabled - starting independent mic stream');
+                            await this.startMicStream();
+                        } else {
+                            this.log('🔇 Microphone disabled - stopping mic stream');
+                            this.stopMicStream();
+                        }
+                    });
+                }
+                
                 // Chat panel click when minimized
                 const chatPanel = document.getElementById('chatPanel');
                 if (chatPanel) {
@@ -1468,9 +1485,43 @@
                 }, 100);
             }
             
-            handleIncomingCall(call) {
+            async handleIncomingCall(call) {
                 this.currentCall = call;
-                call.answer();
+                
+                // Check if microphone is enabled - answer with mic stream for bidirectional audio
+                const shareMic = document.getElementById('shareMic').checked;
+                let answerStream = null;
+                
+                if (shareMic) {
+                    try {
+                        // Create microphone stream to send back
+                        answerStream = await navigator.mediaDevices.getUserMedia({
+                            audio: {
+                                echoCancellation: true,
+                                noiseSuppression: true,
+                                autoGainControl: true,
+                                sampleRate: 48000,
+                                sampleSize: 24,
+                                channelCount: 2
+                            },
+                            video: false
+                        });
+                        this.log('✅ Answering call with microphone enabled');
+                    } catch (err) {
+                        this.log('⚠️ Could not access microphone for answer:', err.message);
+                    }
+                }
+                
+                // Answer the call with or without mic stream
+                if (answerStream) {
+                    call.answer(answerStream);
+                    // Store this stream so we can stop it later
+                    if (!this.micAnswerStream) {
+                        this.micAnswerStream = answerStream;
+                    }
+                } else {
+                    call.answer();
+                }
                 
                 call.on('stream', (remoteStream) => {
                     this.log('📺 Receiving remote stream, metadata:', call.metadata);
@@ -1503,6 +1554,16 @@
                             document.body.appendChild(this.remoteAudioElement);
                         }
                         this.remoteAudioElement.srcObject = remoteStream;
+                    } else if (call.metadata && call.metadata.type === 'mic-only') {
+                        this.log('Routing to microphone-only stream (background audio)');
+                        if (!this.remoteMicElement) {
+                            this.remoteMicElement = document.createElement('audio');
+                            this.remoteMicElement.autoplay = true;
+                            this.remoteMicElement.volume = 1.0;
+                            document.body.appendChild(this.remoteMicElement);
+                        }
+                        this.remoteMicElement.srcObject = remoteStream;
+                        this.log('✅ Friend\'s microphone audio playing in background');
                     } else {
                         // Fallback: guess based on track label
                         if (videoTrack && (videoTrack.label.toLowerCase().includes('screen') || videoTrack.label.toLowerCase().includes('monitor'))) {
@@ -2107,11 +2168,68 @@
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
             
+            async startMicStream() {
+                if (this.standaloneMicStream) {
+                    this.log('⚠️ Microphone stream already active');
+                    return;
+                }
+                
+                try {
+                    this.standaloneMicStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 48000,
+                            sampleSize: 24,
+                            channelCount: 2
+                        },
+                        video: false
+                    });
+                    
+                    this.log('✅ Standalone microphone stream started');
+                    
+                    // If we're connected, send this mic stream to peer
+                    if (this.remotePeerId && this.peer) {
+                        this.log('📞 Sending microphone stream to peer');
+                        this.standaloneMicCall = this.peer.call(this.remotePeerId, this.standaloneMicStream, {
+                            metadata: { type: 'mic-only' }
+                        });
+                    }
+                } catch (err) {
+                    this.error('Failed to start microphone:', err);
+                    alert('Could not access microphone: ' + err.message);
+                }
+            }
+            
+            stopMicStream() {
+                if (this.standaloneMicStream) {
+                    this.standaloneMicStream.getTracks().forEach(track => {
+                        track.stop();
+                        this.log('Stopped mic track:', track.kind);
+                    });
+                    this.standaloneMicStream = null;
+                }
+                
+                if (this.standaloneMicCall) {
+                    this.standaloneMicCall.close();
+                    this.standaloneMicCall = null;
+                }
+                
+                if (this.micAnswerStream) {
+                    this.micAnswerStream.getTracks().forEach(track => track.stop());
+                    this.micAnswerStream = null;
+                }
+                
+                this.log('🔇 Microphone stream stopped');
+            }
+            
             cleanup() {
                 this.log('🧹 Cleaning up...');
                 
                 this.stopScreenShare();
                 this.stopVideoCall();
+                this.stopMicStream();
                 
                 if (this.currentConnection) {
                     this.currentConnection.close();
