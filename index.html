@@ -1426,8 +1426,11 @@
                 this.log('🎉 Activating connection features...');
                 this.updateConnectionStatus('🟢 Connected', true);
                 
-                // Auto-start microphone for voice chat
-                await this.startMicStream();
+                // Auto-start microphone for voice chat (non-blocking)
+                this.startMicStream().catch(err => {
+                    this.error('Microphone auto-start failed:', err);
+                    // Continue without microphone if it fails
+                });
                 
                 const chatPanel = document.getElementById('chatPanel');
                 if (chatPanel) {
