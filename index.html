@@ -216,6 +216,24 @@
             box-shadow: 0 6px 8px -1px rgba(245, 158, 11, 0.3);
         }
 
+        #startAudioCall {
+            background: linear-gradient(135deg, #14b8a6, #0d9488);
+            box-shadow: 0 4px 6px -1px rgba(20, 184, 166, 0.2);
+        }
+
+        #startAudioCall:hover:not(:disabled) {
+            box-shadow: 0 6px 8px -1px rgba(20, 184, 166, 0.3);
+        }
+
+        #stopAudioCall {
+            background: linear-gradient(135deg, #71717a, #52525b);
+            box-shadow: 0 4px 6px -1px rgba(113, 113, 122, 0.2);
+        }
+
+        #stopAudioCall:hover:not(:disabled) {
+            box-shadow: 0 6px 8px -1px rgba(113, 113, 122, 0.3);
+        }
+
         .audio-controls {
             display: flex;
             gap: 20px;
@@ -850,6 +868,14 @@
                 <span class="icon">📵</span>
                 <span>Stop Video Call</span>
             </button>
+            <button id="startAudioCall" disabled>
+                <span class="icon">🎤</span>
+                <span>Audio Call</span>
+            </button>
+            <button id="stopAudioCall" disabled>
+                <span class="icon">🔇</span>
+                <span>Stop Audio</span>
+            </button>
             <div class="audio-controls">
                 <label class="toggle">
                     <input type="checkbox" id="shareAudio" checked>
@@ -976,14 +1002,17 @@
                 console.log('[P2P] Initializing P2PScreenShare with PeerJS...');
                 this.localStream = null;
                 this.videoCallStream = null;
+                this.audioCallStream = null;
                 this.peer = null;
                 this.currentConnection = null;
                 this.currentCall = null;
                 this.videoCall = null;
+                this.audioCall = null;
                 this.remotePeerId = null;
                 this.noiseSuppressionLevel = 0.5;
                 this.isScreenSharing = false;
                 this.isVideoCallActive = false;
+                this.isAudioCallActive = false;
                 
                 this.initElements();
                 this.initPeerJS();
@@ -1011,6 +1040,8 @@
                 this.stopShareBtn = document.getElementById('stopShare');
                 this.startVideoCallBtn = document.getElementById('startVideoCall');
                 this.stopVideoCallBtn = document.getElementById('stopVideoCall');
+                this.startAudioCallBtn = document.getElementById('startAudioCall');
+                this.stopAudioCallBtn = document.getElementById('stopAudioCall');
                 this.localScreen = document.getElementById('localScreen');
                 this.remoteScreen = document.getElementById('remoteScreen');
                 this.localVideo = document.getElementById('localVideo');
@@ -1047,6 +1078,17 @@
                     const maxWidth = 800;
                     const maxHeight = 450;
                     
+                    let initialPinchDistance = 0;
+                    let initialPinchWidth = 0;
+                    let initialPinchHeight = 0;
+                    
+                    // Calculate distance between two touch points
+                    const getPinchDistance = (touches) => {
+                        const dx = touches[0].clientX - touches[1].clientX;
+                        const dy = touches[0].clientY - touches[1].clientY;
+                        return Math.sqrt(dx * dx + dy * dy);
+                    };
+                    
                     // Unified function to get coordinates from mouse or touch event
                     const getCoordinates = (e) => {
                         if (e.touches && e.touches.length > 0) {
@@ -1058,6 +1100,17 @@
                     // Start drag or resize (works for both mouse and touch)
                     const handleStart = (e) => {
                         if (!wrapper.classList.contains('pip')) return;
+                        
+                        // Handle pinch gesture (2 fingers)
+                        if (e.touches && e.touches.length === 2) {
+                            isResizing = true;
+                            resizeDirection = 'pinch';
+                            initialPinchDistance = getPinchDistance(e.touches);
+                            initialPinchWidth = wrapper.offsetWidth;
+                            initialPinchHeight = wrapper.offsetHeight;
+                            e.preventDefault();
+                            return;
+                        }
                         
                         const coords = getCoordinates(e);
                         
@@ -1105,6 +1158,23 @@
                             wrapper.style.right = 'auto';
                             wrapper.style.bottom = 'auto';
                         } else if (isResizing) {
+                            // Handle pinch gesture
+                            if (resizeDirection === 'pinch' && e.touches && e.touches.length === 2) {
+                                const currentDistance = getPinchDistance(e.touches);
+                                const scale = currentDistance / initialPinchDistance;
+                                
+                                let newWidth = initialPinchWidth * scale;
+                                let newHeight = initialPinchHeight * scale;
+                                
+                                // Apply constraints
+                                newWidth = Math.max(minWidth, Math.min(newWidth, maxWidth));
+                                newHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
+                                
+                                wrapper.style.width = newWidth + 'px';
+                                wrapper.style.height = newHeight + 'px';
+                                return;
+                            }
+                            
                             const deltaX = coords.x - startX;
                             const deltaY = coords.y - startY;
                             
@@ -1253,6 +1323,8 @@
                 this.stopShareBtn.addEventListener('click', () => this.stopScreenShare());
                 this.startVideoCallBtn.addEventListener('click', () => this.startVideoCall());
                 this.stopVideoCallBtn.addEventListener('click', () => this.stopVideoCall());
+                this.startAudioCallBtn.addEventListener('click', () => this.startAudioCall());
+                this.stopAudioCallBtn.addEventListener('click', () => this.stopAudioCall());
                 
                 const chatInput = document.getElementById('chatInput');
                 const sendBtn = document.getElementById('sendMessage');
@@ -1479,6 +1551,14 @@
                         this.remoteVideo.play().catch(e => this.error('Error playing remote video:', e));
                         document.getElementById('remoteVideoWrapper').classList.remove('hidden');
                         this.activeStreams.videoRemote = true;
+                    } else if (call.metadata && call.metadata.type === 'audio') {
+                        this.log('Routing to remote audio call');
+                        if (!this.remoteAudioElement) {
+                            this.remoteAudioElement = document.createElement('audio');
+                            this.remoteAudioElement.autoplay = true;
+                            document.body.appendChild(this.remoteAudioElement);
+                        }
+                        this.remoteAudioElement.srcObject = remoteStream;
                     } else {
                         // Fallback: guess based on track label
                         if (videoTrack && (videoTrack.label.toLowerCase().includes('screen') || videoTrack.label.toLowerCase().includes('monitor'))) {
@@ -1764,37 +1844,163 @@
             }
             
             stopVideoCall() {
-                this.log('📵 Stopping video call...');
+                this.log('🛑 Stopping video call...');
                 
+                // Stop all tracks from the stream
                 if (this.videoCallStream) {
                     this.videoCallStream.getTracks().forEach(track => {
                         track.stop();
-                        this.log('Stopped video call track:', track.kind);
+                        this.log('Stopped video call track:', track.kind, track.label);
                     });
                     this.videoCallStream = null;
                 }
                 
+                // Clear video element and remove srcObject reference
+                if (this.localVideo.srcObject) {
+                    this.localVideo.srcObject.getTracks().forEach(track => track.stop());
+                    this.localVideo.srcObject = null;
+                }
+                
+                document.getElementById('localVideoWrapper').classList.add('hidden');
+                this.activeStreams.videoLocal = false;
+                this.isVideoCallActive = false;
+                
+                // Close peer call connection
                 if (this.videoCall) {
                     this.videoCall.close();
                     this.videoCall = null;
                 }
-                
-                // Clear video elements
-                this.localVideo.srcObject = null;
-                document.getElementById('localVideoWrapper').classList.add('hidden');
-                this.activeStreams.videoLocal = false;
-                this.isVideoCallActive = false;
                 
                 // Update status only if screen sharing is not active
                 if (!this.isScreenSharing) {
                     this.updateStreamStatus('⚪ Not Sharing', false);
                 }
                 
-                // Reset buttons
                 this.startVideoCallBtn.disabled = false;
                 this.stopVideoCallBtn.disabled = true;
+                this.log('✅ Video call stopped and camera released');
+            }
+            
+            async startAudioCall() {
+                this.log('🎤 Starting audio call...');
                 
-                this.log('✅ Video call stopped');
+                try {
+                    const shareMic = document.getElementById('shareMic').checked;
+                    
+                    if (!shareMic) {
+                        alert('Please enable microphone to start audio call!');
+                        return;
+                    }
+                    
+                    // Get only microphone
+                    const constraints = {
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 48000,
+                            sampleSize: 24,
+                            channelCount: 2
+                        }
+                    };
+                    
+                    this.audioCallStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    // Apply noise suppression using Web Audio API
+                    if (this.noiseSuppressionLevel > 0) {
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        const source = audioContext.createMediaStreamSource(this.audioCallStream);
+                        const gainNode = audioContext.createGain();
+                        gainNode.gain.value = 1 - (this.noiseSuppressionLevel * 0.3);
+                        source.connect(gainNode);
+                        const destination = audioContext.createMediaStreamDestination();
+                        gainNode.connect(destination);
+                        this.audioCallStream = destination.stream;
+                    }
+                    
+                    this.updateStreamStatus('🟢 Audio Call Active', true);
+                    this.log('✅ Audio call started');
+                    this.isAudioCallActive = true;
+                    
+                    // Enable stop button, disable start button
+                    this.startAudioCallBtn.disabled = true;
+                    this.stopAudioCallBtn.disabled = false;
+                    
+                    // If connected to peer, call them with the audio stream
+                    if (this.remotePeerId) {
+                        this.log('📞 Calling peer with audio call...');
+                        this.audioCall = this.peer.call(this.remotePeerId, this.audioCallStream, {
+                            metadata: { type: 'audio' },
+                            constraints: {
+                                mandatory: {
+                                    OfferToReceiveAudio: true,
+                                    OfferToReceiveVideo: false
+                                }
+                            },
+                            sdpTransform: (sdp) => {
+                                return sdp.replace(/(m=audio.*\r\n)/g, '$1b=AS:510\r\n');
+                            }
+                        });
+                        
+                        this.audioCall.on('stream', (remoteStream) => {
+                            this.log('📺 Receiving remote audio call stream');
+                            // Create invisible audio element to play remote audio
+                            if (!this.remoteAudioElement) {
+                                this.remoteAudioElement = document.createElement('audio');
+                                this.remoteAudioElement.autoplay = true;
+                                document.body.appendChild(this.remoteAudioElement);
+                            }
+                            this.remoteAudioElement.srcObject = remoteStream;
+                        });
+                        
+                        this.audioCall.on('close', () => {
+                            this.log('📞 Audio call ended by remote peer');
+                        });
+                    }
+                    
+                } catch (error) {
+                    this.error('Failed to start audio call:', error);
+                    if (error.name === 'NotAllowedError') {
+                        alert('Microphone permission denied. Please allow access and try again.');
+                    } else if (error.name === 'NotFoundError') {
+                        alert('No microphone found. Please connect a microphone and try again.');
+                    } else {
+                        alert('Failed to start audio call: ' + error.message);
+                    }
+                }
+            }
+            
+            stopAudioCall() {
+                this.log('🛑 Stopping audio call...');
+                
+                if (this.audioCallStream) {
+                    this.audioCallStream.getTracks().forEach(track => {
+                        track.stop();
+                        this.log('Stopped audio track:', track.kind);
+                    });
+                    this.audioCallStream = null;
+                }
+                
+                if (this.remoteAudioElement) {
+                    this.remoteAudioElement.srcObject = null;
+                    this.remoteAudioElement.remove();
+                    this.remoteAudioElement = null;
+                }
+                
+                this.isAudioCallActive = false;
+                
+                if (this.audioCall) {
+                    this.audioCall.close();
+                    this.audioCall = null;
+                }
+                
+                if (!this.isScreenSharing && !this.isVideoCallActive) {
+                    this.updateStreamStatus('⚪ Not Sharing', false);
+                }
+                
+                this.startAudioCallBtn.disabled = false;
+                this.stopAudioCallBtn.disabled = true;
+                this.log('✅ Audio call stopped');
             }
             
             updateConnectionStatus(status, isConnected) {
@@ -1803,6 +2009,7 @@
                 this.connectionStatus.className = 'status ' + (isConnected ? 'connected' : 'disconnected');
                 this.shareScreenBtn.disabled = !isConnected;
                 this.startVideoCallBtn.disabled = !isConnected;
+                this.startAudioCallBtn.disabled = !isConnected;
             }
             
             updateStreamStatus(status, isSharing) {
