@@ -823,34 +823,11 @@
                 <span class="icon">⏹️</span>
                 <span>Stop Sharing</span>
             </button>
-            <button id="startVideoCall" disabled>
-                <span class="icon">📹</span>
-                <span>Start Video Call</span>
-            </button>
-            <button id="stopVideoCall" disabled>
-                <span class="icon">📵</span>
-                <span>Stop Video Call</span>
-            </button>
-            <button id="startAudioCall" disabled>
-                <span class="icon">🎤</span>
-                <span>Audio Call</span>
-            </button>
-            <button id="stopAudioCall" disabled>
-                <span class="icon">🔇</span>
-                <span>Stop Audio</span>
-            </button>
-            <div class="audio-controls">
-                <label class="toggle">
-                    <input type="checkbox" id="shareAudio" checked>
-                    <span class="slider"></span>
-                    <span class="label">🔊 System Audio</span>
-                </label>
-                <label class="toggle">
-                    <input type="checkbox" id="shareMic">
-                    <span class="slider"></span>
-                    <span class="label">🎤 Microphone</span>
-                </label>
-            </div>
+            <label class="toggle" style="margin-left: 20px;">
+                <input type="checkbox" id="videoToggle">
+                <span class="slider"></span>
+                <span class="label">📹 Camera</span>
+            </label>
         </div>
 
         <div class="status-bar">
@@ -962,6 +939,8 @@
                 this.standaloneMicStream = null;
                 this.standaloneMicCall = null;
                 this.micAnswerStream = null;
+                this.videoStream = null;
+                this.videoCall = null;
                 this.peer = null;
                 this.currentConnection = null;
                 this.currentCall = null;
@@ -996,10 +975,7 @@
                 this.receiveConnectionBtn = document.getElementById('receiveConnectionBtn');
                 this.shareScreenBtn = document.getElementById('shareScreen');
                 this.stopShareBtn = document.getElementById('stopShare');
-                this.startVideoCallBtn = document.getElementById('startVideoCall');
-                this.stopVideoCallBtn = document.getElementById('stopVideoCall');
-                this.startAudioCallBtn = document.getElementById('startAudioCall');
-                this.stopAudioCallBtn = document.getElementById('stopAudioCall');
+                this.videoToggle = document.getElementById('videoToggle');
                 this.localScreen = document.getElementById('localScreen');
                 this.remoteScreen = document.getElementById('remoteScreen');
                 this.localVideo = document.getElementById('localVideo');
@@ -1277,10 +1253,17 @@
                 this.receiveConnectionBtn.addEventListener('click', () => this.showConnectDialog());
                 this.shareScreenBtn.addEventListener('click', () => this.startScreenShare());
                 this.stopShareBtn.addEventListener('click', () => this.stopScreenShare());
-                this.startVideoCallBtn.addEventListener('click', () => this.startVideoCall());
-                this.stopVideoCallBtn.addEventListener('click', () => this.stopVideoCall());
-                this.startAudioCallBtn.addEventListener('click', () => this.startAudioCall());
-                this.stopAudioCallBtn.addEventListener('click', () => this.stopAudioCall());
+                
+                // Video toggle
+                if (this.videoToggle) {
+                    this.videoToggle.addEventListener('change', (e) => {
+                        if (e.target.checked) {
+                            this.startVideoStream();
+                        } else {
+                            this.stopVideoStream();
+                        }
+                    });
+                }
                 
                 const chatInput = document.getElementById('chatInput');
                 const sendBtn = document.getElementById('sendMessage');
@@ -1298,20 +1281,6 @@
                 
                 if (toggleBtn) {
                     toggleBtn.addEventListener('click', () => this.toggleChatPanel());
-                }
-                
-                // Microphone toggle - allow turning mic on/off anytime
-                const micToggle = document.getElementById('shareMic');
-                if (micToggle) {
-                    micToggle.addEventListener('change', async (e) => {
-                        if (e.target.checked) {
-                            this.log('🎤 Microphone enabled - starting independent mic stream');
-                            await this.startMicStream();
-                        } else {
-                            this.log('🔇 Microphone disabled - stopping mic stream');
-                            this.stopMicStream();
-                        }
-                    });
                 }
                 
                 // Chat panel click when minimized
@@ -1453,14 +1422,17 @@
                 }, 60000);
             }
             
-            activateConnection() {
+            async activateConnection() {
                 this.log('🎉 Activating connection features...');
                 this.updateConnectionStatus('🟢 Connected', true);
+                
+                // Auto-start microphone for voice chat
+                await this.startMicStream();
                 
                 const chatPanel = document.getElementById('chatPanel');
                 if (chatPanel) {
                     chatPanel.style.display = 'flex';
-                    this.addSystemMessage('💬 P2P connection established! Ready for chat, screen share, and video calls!');
+                    this.addSystemMessage('💬 Connected! Voice chat active. Share your screen or turn on camera.');
                 }
             }
             
@@ -1488,34 +1460,30 @@
             async handleIncomingCall(call) {
                 this.currentCall = call;
                 
-                // Check if microphone is enabled - answer with mic stream for bidirectional audio
-                const shareMic = document.getElementById('shareMic').checked;
+                // Always answer with microphone for voice chat
                 let answerStream = null;
                 
-                if (shareMic) {
-                    try {
-                        // Create microphone stream to send back
-                        answerStream = await navigator.mediaDevices.getUserMedia({
-                            audio: {
-                                echoCancellation: true,
-                                noiseSuppression: true,
-                                autoGainControl: true,
-                                sampleRate: 48000,
-                                sampleSize: 24,
-                                channelCount: 2
-                            },
-                            video: false
-                        });
-                        this.log('✅ Answering call with microphone enabled');
-                    } catch (err) {
-                        this.log('⚠️ Could not access microphone for answer:', err.message);
-                    }
+                try {
+                    // Create microphone stream to send back
+                    answerStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 48000,
+                            sampleSize: 24,
+                            channelCount: 2
+                        },
+                        video: false
+                    });
+                    this.log('✅ Answering call with microphone enabled');
+                } catch (err) {
+                    this.log('⚠️ Could not access microphone for answer:', err.message);
                 }
                 
                 // Answer the call with or without mic stream
                 if (answerStream) {
                     call.answer(answerStream);
-                    // Store this stream so we can stop it later
                     if (!this.micAnswerStream) {
                         this.micAnswerStream = answerStream;
                     }
@@ -1594,20 +1562,12 @@
                 try {
                     this.log('🖥️ Requesting screen share...');
                     
-                    // CRITICAL: Stop any existing video/audio call to prevent echo
-                    if (this.isVideoCallActive) {
-                        this.log('⚠️ Stopping video call to prevent echo');
-                        this.stopVideoCall();
-                    }
-                    if (this.isAudioCallActive) {
-                        this.log('⚠️ Stopping audio call to prevent echo');
-                        this.stopAudioCall();
+                    // Stop video stream if active
+                    if (this.videoStream) {
+                        this.stopVideoStream();
                     }
                     
-                    const shareAudio = document.getElementById('shareAudio').checked;
-                    const shareMic = document.getElementById('shareMic').checked;
-                    
-                    // Get screen with system audio (for movie sound)
+                    // Get screen with system audio (always on for movie sound)
                     const screenStream = await navigator.mediaDevices.getDisplayMedia({
                         video: {
                             width: { ideal: 3840, max: 3840 },
@@ -1616,59 +1576,18 @@
                             cursor: 'always',
                             displaySurface: 'monitor'
                         },
-                        audio: shareAudio ? {
-                            echoCancellation: false, // Don't process system audio
+                        audio: {
+                            echoCancellation: false,
                             noiseSuppression: false,
                             autoGainControl: false,
                             sampleRate: 48000,
                             sampleSize: 24,
                             channelCount: 2
-                        } : false
+                        }
                     });
                     
-                    // Get microphone separately with echo cancellation
-                    let micStream = null;
-                    if (shareMic) {
-                        try {
-                            micStream = await navigator.mediaDevices.getUserMedia({
-                                audio: {
-                                    echoCancellation: true, // Critical for preventing echo
-                                    noiseSuppression: true,
-                                    autoGainControl: true,
-                                    sampleRate: 48000,
-                                    sampleSize: 24,
-                                    channelCount: 2
-                                }
-                            });
-                            this.log('✅ Microphone enabled with echo cancellation');
-                        } catch (e) {
-                            this.log('⚠️ Could not access microphone:', e.message);
-                            alert('Microphone access denied. Sharing without mic.');
-                        }
-                    }
-                    
-                    // Combine streams properly - avoid duplicate tracks
-                    const videoTracks = screenStream.getVideoTracks();
-                    const audioTracks = [];
-                    
-                    // Add system audio (movie sound) if available
-                    if (shareAudio && screenStream.getAudioTracks().length > 0) {
-                        audioTracks.push(screenStream.getAudioTracks()[0]); // Only first track
-                        this.log('✅ System audio enabled');
-                    }
-                    
-                    // Add microphone if available and different from system audio
-                    if (micStream && micStream.getAudioTracks().length > 0) {
-                        audioTracks.push(micStream.getAudioTracks()[0]); // Only first track
-                        this.log('✅ Microphone added to stream');
-                    }
-                    
-                    this.localStream = new MediaStream([
-                        ...videoTracks,
-                        ...audioTracks
-                    ]);
-                    
-                    this.log(`📊 Stream created: ${videoTracks.length} video, ${audioTracks.length} audio tracks`);
+                    // Microphone is handled separately via standalone stream
+                    this.localStream = screenStream;
                     
                     this.localScreen.srcObject = this.localStream;
                     this.localScreen.muted = true; // Always mute local preview to prevent echo
@@ -2168,6 +2087,60 @@
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
             
+            async startVideoStream() {
+                if (this.videoStream) {
+                    this.log('⚠️ Video stream already active');
+                    return;
+                }
+                
+                try {
+                    this.videoStream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 },
+                            frameRate: { ideal: 30 },
+                            facingMode: 'user'
+                        },
+                        audio: false // Audio is handled separately via mic stream
+                    });
+                    
+                    this.localVideo.srcObject = this.videoStream;
+                    this.localVideo.muted = true;
+                    this.localVideo.play();
+                    document.getElementById('localVideoWrapper').classList.remove('hidden');
+                    
+                    this.log('✅ Camera started');
+                    
+                    // Send video to peer if connected
+                    if (this.remotePeerId && this.peer) {
+                        this.videoCall = this.peer.call(this.remotePeerId, this.videoStream, {
+                            metadata: { type: 'camera' }
+                        });
+                    }
+                } catch (err) {
+                    this.error('Failed to start camera:', err);
+                    alert('Could not access camera: ' + err.message);
+                    if (this.videoToggle) this.videoToggle.checked = false;
+                }
+            }
+            
+            stopVideoStream() {
+                if (this.videoStream) {
+                    this.videoStream.getTracks().forEach(track => track.stop());
+                    this.videoStream = null;
+                }
+                
+                if (this.videoCall) {
+                    this.videoCall.close();
+                    this.videoCall = null;
+                }
+                
+                this.localVideo.srcObject = null;
+                document.getElementById('localVideoWrapper').classList.add('hidden');
+                
+                this.log('📹 Camera stopped');
+            }
+            
             async startMicStream() {
                 if (this.standaloneMicStream) {
                     this.log('⚠️ Microphone stream already active');
@@ -2228,7 +2201,7 @@
                 this.log('🧹 Cleaning up...');
                 
                 this.stopScreenShare();
-                this.stopVideoCall();
+                this.stopVideoStream();
                 this.stopMicStream();
                 
                 if (this.currentConnection) {
