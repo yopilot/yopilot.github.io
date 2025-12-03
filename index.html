@@ -1047,16 +1047,26 @@
                     const maxWidth = 800;
                     const maxHeight = 450;
                     
-                    // Dragging - only on wrapper itself, not on resize handles
-                    wrapper.addEventListener('mousedown', (e) => {
+                    // Unified function to get coordinates from mouse or touch event
+                    const getCoordinates = (e) => {
+                        if (e.touches && e.touches.length > 0) {
+                            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                        }
+                        return { x: e.clientX, y: e.clientY };
+                    };
+                    
+                    // Start drag or resize (works for both mouse and touch)
+                    const handleStart = (e) => {
                         if (!wrapper.classList.contains('pip')) return;
                         
-                        // Check if clicking on a resize handle
+                        const coords = getCoordinates(e);
+                        
+                        // Check if clicking/touching on a resize handle
                         if (e.target.classList.contains('resize-handle')) {
                             isResizing = true;
                             resizeDirection = e.target.className.split(' ').find(c => c.startsWith('resize-'));
-                            startX = e.clientX;
-                            startY = e.clientY;
+                            startX = coords.x;
+                            startY = coords.y;
                             startWidth = wrapper.offsetWidth;
                             startHeight = wrapper.offsetHeight;
                             startLeft = wrapper.offsetLeft;
@@ -1066,17 +1076,22 @@
                         } else if (e.target === wrapper || e.target.tagName === 'VIDEO') {
                             // Only drag when clicking on wrapper or video, not on buttons
                             isDragging = true;
-                            startX = e.clientX - wrapper.offsetLeft;
-                            startY = e.clientY - wrapper.offsetTop;
+                            startX = coords.x - wrapper.offsetLeft;
+                            startY = coords.y - wrapper.offsetTop;
                             e.preventDefault();
                         }
-                    });
+                    };
                     
-                    document.addEventListener('mousemove', (e) => {
+                    // Handle move (works for both mouse and touch)
+                    const handleMove = (e) => {
+                        if (!isDragging && !isResizing) return;
+                        
+                        e.preventDefault();
+                        const coords = getCoordinates(e);
+                        
                         if (isDragging) {
-                            e.preventDefault();
-                            let newLeft = e.clientX - startX;
-                            let newTop = e.clientY - startY;
+                            let newLeft = coords.x - startX;
+                            let newTop = coords.y - startY;
                             
                             // Keep within viewport bounds
                             const maxLeft = window.innerWidth - wrapper.offsetWidth;
@@ -1090,9 +1105,8 @@
                             wrapper.style.right = 'auto';
                             wrapper.style.bottom = 'auto';
                         } else if (isResizing) {
-                            e.preventDefault();
-                            const deltaX = e.clientX - startX;
-                            const deltaY = e.clientY - startY;
+                            const deltaX = coords.x - startX;
+                            const deltaY = coords.y - startY;
                             
                             let newWidth = startWidth;
                             let newHeight = startHeight;
@@ -1136,13 +1150,25 @@
                             wrapper.style.right = 'auto';
                             wrapper.style.bottom = 'auto';
                         }
-                    });
+                    };
                     
-                    document.addEventListener('mouseup', () => {
+                    // Handle end (works for both mouse and touch)
+                    const handleEnd = () => {
                         isDragging = false;
                         isResizing = false;
                         resizeDirection = null;
-                    });
+                    };
+                    
+                    // Mouse events
+                    wrapper.addEventListener('mousedown', handleStart);
+                    document.addEventListener('mousemove', handleMove);
+                    document.addEventListener('mouseup', handleEnd);
+                    
+                    // Touch events for mobile
+                    wrapper.addEventListener('touchstart', handleStart, { passive: false });
+                    document.addEventListener('touchmove', handleMove, { passive: false });
+                    document.addEventListener('touchend', handleEnd);
+                    document.addEventListener('touchcancel', handleEnd);
                 });
             }
             
