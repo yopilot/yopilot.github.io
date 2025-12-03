@@ -1211,7 +1211,21 @@
                         iceTransportPolicy: 'all',
                         bundlePolicy: 'max-bundle',
                         rtcpMuxPolicy: 'require',
-                        encodedInsertableStreams: false
+                        encodedInsertableStreams: false,
+                        // Optimize for high-quality audio
+                        sdpTransform: function(sdp) {
+                            // Set Opus codec as preferred with optimal settings for voice
+                            sdp = sdp.replace(/a=fmtp:(\d+).*\r\n/g, function(match, codecId) {
+                                // Check if this is Opus codec (typically 111)
+                                if (sdp.includes('a=rtpmap:' + codecId + ' opus/48000/2')) {
+                                    return 'a=fmtp:' + codecId + ' minptime=10;useinbandfec=1;maxaveragebitrate=510000;stereo=1;sprop-stereo=1;cbr=1\r\n';
+                                }
+                                return match;
+                            });
+                            // Set audio bitrate to maximum for crisp quality
+                            sdp = sdp.replace(/(m=audio \d+ [\w\/]+)(.*)/g, '$1$2\r\nb=AS:510\r\nb=TIAS:510000');
+                            return sdp;
+                        }
                     }
                 });
                 
@@ -1467,15 +1481,22 @@
                 let answerStream = null;
                 
                 try {
-                    // Create microphone stream to send back
+                    // Create optimized microphone stream to send back
                     answerStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true,
-                            sampleRate: 48000,
-                            sampleSize: 24,
-                            channelCount: 2
+                            echoCancellation: true,          // Prevent echo
+                            noiseSuppression: false,         // Keep voice natural, not robotic
+                            autoGainControl: true,           // Auto-adjust volume
+                            sampleRate: 48000,               // High quality sample rate
+                            sampleSize: 16,                  // Standard bit depth (more compatible)
+                            channelCount: 2,                 // Stereo for better spatial audio
+                            latency: 0.01,                   // Low latency for real-time (10ms)
+                            googEchoCancellation: true,      // Chrome-specific echo cancellation
+                            googAutoGainControl: true,       // Chrome-specific auto gain
+                            googNoiseSuppression: false,     // Disable to avoid robotic voice
+                            googHighpassFilter: true,        // Remove low-frequency noise
+                            googTypingNoiseDetection: true,  // Filter keyboard sounds
+                            googAudioMirroring: false        // Disable audio mirroring
                         },
                         video: false
                     });
@@ -2153,14 +2174,22 @@
                 }
                 
                 try {
+                    // Optimized audio constraints for crisp, natural voice on mobile and desktop
                     this.standaloneMicStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true,
-                            sampleRate: 48000,
-                            sampleSize: 24,
-                            channelCount: 2
+                            echoCancellation: true,          // Prevent echo
+                            noiseSuppression: false,         // Keep voice natural, not robotic
+                            autoGainControl: true,           // Auto-adjust volume
+                            sampleRate: 48000,               // High quality sample rate
+                            sampleSize: 16,                  // Standard bit depth (more compatible)
+                            channelCount: 2,                 // Stereo for better spatial audio
+                            latency: 0.01,                   // Low latency for real-time (10ms)
+                            googEchoCancellation: true,      // Chrome-specific echo cancellation
+                            googAutoGainControl: true,       // Chrome-specific auto gain
+                            googNoiseSuppression: false,     // Disable to avoid robotic voice
+                            googHighpassFilter: true,        // Remove low-frequency noise
+                            googTypingNoiseDetection: true,  // Filter keyboard sounds
+                            googAudioMirroring: false        // Disable audio mirroring
                         },
                         video: false
                     });
