@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1687,6 +1687,12 @@
                 try {
                     this.log('📹 Starting video call...');
                     
+                    // CRITICAL: Stop screen sharing to prevent echo
+                    if (this.isScreenSharing) {
+                        this.log('⚠️ Stopping screen share to prevent echo');
+                        this.stopScreenShare();
+                    }
+                    
                     const shareAudio = document.getElementById('shareAudio').checked;
                     const shareMic = document.getElementById('shareMic').checked;
                     
@@ -1817,6 +1823,12 @@
                 this.log('🎤 Starting audio call...');
                 
                 try {
+                    // CRITICAL: Stop screen sharing to prevent echo
+                    if (this.isScreenSharing) {
+                        this.log('⚠️ Stopping screen share to prevent echo');
+                        this.stopScreenShare();
+                    }
+                    
                     const shareMic = document.getElementById('shareMic').checked;
                     
                     if (!shareMic) {
