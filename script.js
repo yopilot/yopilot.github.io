@@ -1947,13 +1947,24 @@
                 const wrapper = document.getElementById(wrapperId);
                 if (!wrapper) return;
 
-                if (!document.fullscreenElement) {
-                    wrapper.requestFullscreen().catch(err => {
-                        this.error(`Error attempting to enable fullscreen: ${err.message}`);
-                    });
+                // Toggle CSS class instead of native fullscreen
+                const isFullscreen = wrapper.classList.contains('fullscreen');
+                
+                if (isFullscreen) {
+                    wrapper.classList.remove('fullscreen');
+                    this.log(`📺 Exited fullscreen for ${wrapperId}`);
                 } else {
-                    document.exitFullscreen();
+                    // Remove fullscreen from any other element first
+                    document.querySelectorAll('.video-wrapper.fullscreen').forEach(el => {
+                        el.classList.remove('fullscreen');
+                    });
+                    
+                    wrapper.classList.add('fullscreen');
+                    this.log(`📺 Entered fullscreen for ${wrapperId}`);
                 }
+                
+                // Update PIP mode for other videos
+                this.managePipMode();
             }
 
             async safePlay(element) {
@@ -2167,15 +2178,30 @@
             
             managePipMode() {
                 const fullscreenWrapper = document.querySelector('.video-wrapper.fullscreen');
-                const allWrappers = document.querySelectorAll('.video-wrapper:not(.hidden)');
+                const allWrappers = Array.from(document.querySelectorAll('.video-wrapper:not(.hidden)'));
                 
                 if (fullscreenWrapper) {
                     // When one is fullscreen, put others in PIP
-                    allWrappers.forEach(wrapper => {
-                        if (wrapper !== fullscreenWrapper && !wrapper.classList.contains('pip')) {
-                            wrapper.classList.add('pip');
-                            wrapper.style.zIndex = '10000';
-                        }
+                    const pipWrappers = allWrappers.filter(w => w !== fullscreenWrapper);
+                    
+                    pipWrappers.forEach((wrapper, index) => {
+                        wrapper.classList.add('pip');
+                        wrapper.style.zIndex = '10000';
+                        
+                        // Stack PIP windows vertically in bottom-right
+                        const width = 300;
+                        const height = 169;
+                        const gap = 20;
+                        
+                        wrapper.style.width = `${width}px`;
+                        wrapper.style.height = `${height}px`;
+                        wrapper.style.position = 'fixed';
+                        wrapper.style.bottom = `${gap + (index * (height + gap))}px`;
+                        wrapper.style.right = `${gap}px`;
+                        
+                        // Clear other positioning styles
+                        wrapper.style.left = '';
+                        wrapper.style.top = '';
                     });
                 } else {
                     // No fullscreen, exit all PIP modes
@@ -2186,6 +2212,9 @@
                         wrapper.style.width = '';
                         wrapper.style.height = '';
                         wrapper.style.zIndex = '';
+                        wrapper.style.position = '';
+                        wrapper.style.bottom = '';
+                        wrapper.style.right = '';
                     });
                 }
             }

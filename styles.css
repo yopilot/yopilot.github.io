@@ -594,6 +594,11 @@
             border-color: #3b82f6;
         }
 
+        /* Mirror local camera video for natural feel */
+        #localVideo {
+            transform: scaleX(-1);
+        }
+
         .remote-video {
             border-color: #10b981;
         }
