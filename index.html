@@ -57,11 +57,22 @@
                 <span class="slider"></span>
                 <span class="label">📹 Camera</span>
             </label>
+            <div class="audio-controls">
+                <label class="volume-control">
+                    <span>🔊 Mic Volume:</span>
+                    <input type="range" id="micVolume" min="0" max="1" step="0.1" value="1">
+                </label>
+                <label class="volume-control">
+                    <span>🔊 System Volume:</span>
+                    <input type="range" id="systemVolume" min="0" max="1" step="0.1" value="0.7">
+                </label>
+            </div>
         </div>
 
         <div class="status-bar">
             <span id="connectionStatus" class="status disconnected">⚪ Not Connected</span>
             <span id="streamStatus" class="status">⚪ Not Sharing</span>
+            <span id="qualityIndicator" class="status quality">📊 Quality: --</span>
         </div>
 
         <!-- P2P Chat Panel -->
@@ -154,6 +165,10 @@
                 <li>Use P2P chat to message directly (no server!)</li>
             </ol>
             <p class="note">✨ PeerJS handles all the complex signaling - 99% connection success rate!</p>
+            <p class="shortcuts">
+                <strong>Keyboard Shortcuts:</strong><br>
+                <kbd>Ctrl+F</kbd> Toggle fullscreen • <kbd>Ctrl+M</kbd> Toggle microphone • <kbd>Ctrl+S</kbd> Toggle screen share • <kbd>Ctrl+V</kbd> Toggle camera
+            </p>
         </div>
     </div>
 

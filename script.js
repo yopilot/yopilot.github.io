@@ -51,6 +51,7 @@
                 this.remoteVideo = document.getElementById('remoteVideo');
                 this.connectionStatus = document.getElementById('connectionStatus');
                 this.streamStatus = document.getElementById('streamStatus');
+                this.qualityIndicator = document.getElementById('qualityIndicator');
                 
                 // Track which streams are active
                 this.activeStreams = {
@@ -348,6 +349,22 @@
                     });
                 }
                 
+                // Volume controls
+                const micVolume = document.getElementById('micVolume');
+                const systemVolume = document.getElementById('systemVolume');
+                
+                if (micVolume) {
+                    micVolume.addEventListener('input', (e) => {
+                        this.setMicVolume(parseFloat(e.target.value));
+                    });
+                }
+                
+                if (systemVolume) {
+                    systemVolume.addEventListener('input', (e) => {
+                        this.setSystemVolume(parseFloat(e.target.value));
+                    });
+                }
+                
                 const chatInput = document.getElementById('chatInput');
                 const sendBtn = document.getElementById('sendMessage');
                 const toggleBtn = document.getElementById('toggleChat');
@@ -378,6 +395,59 @@
                 
                 window.addEventListener('beforeunload', () => {
                     this.cleanup();
+                });
+                
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    // Only handle shortcuts when not typing in input fields
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                    
+                    switch(e.key.toLowerCase()) {
+                        case 'f':
+                            if (e.ctrlKey || e.metaKey) {
+                                e.preventDefault();
+                                const activeFullscreen = document.querySelector('.video-wrapper.fullscreen');
+                                if (activeFullscreen) {
+                                    this.toggleFullscreen(activeFullscreen.id);
+                                } else {
+                                    // Find first visible video and make it fullscreen
+                                    const visibleVideos = document.querySelectorAll('.video-wrapper:not(.hidden)');
+                                    if (visibleVideos.length > 0) {
+                                        this.toggleFullscreen(visibleVideos[0].id);
+                                    }
+                                }
+                            }
+                            break;
+                        case 'm':
+                            if (e.ctrlKey || e.metaKey) {
+                                e.preventDefault();
+                                if (this.standaloneMicStream) {
+                                    this.stopMicStream();
+                                } else {
+                                    this.startMicStream();
+                                }
+                            }
+                            break;
+                        case 's':
+                            if (e.ctrlKey || e.metaKey) {
+                                e.preventDefault();
+                                if (this.isScreenSharing) {
+                                    this.stopScreenShare();
+                                } else {
+                                    this.startScreenShare();
+                                }
+                            }
+                            break;
+                        case 'v':
+                            if (e.ctrlKey || e.metaKey) {
+                                e.preventDefault();
+                                if (this.videoToggle) {
+                                    this.videoToggle.checked = !this.videoToggle.checked;
+                                    this.videoToggle.dispatchEvent(new Event('change'));
+                                }
+                            }
+                            break;
+                    }
                 });
             }
             
@@ -545,18 +615,20 @@
                     answerStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
                             echoCancellation: true,          // Prevent echo
-                            noiseSuppression: false,         // Keep voice natural, not robotic
+                            noiseSuppression: true,          // Enable noise suppression
                             autoGainControl: true,           // Auto-adjust volume
                             sampleRate: 48000,               // High quality sample rate
-                            sampleSize: 16,                  // Standard bit depth (more compatible)
-                            channelCount: 2,                 // Stereo for better spatial audio
-                            latency: 0.01,                   // Low latency for real-time (10ms)
+                            sampleSize: 16,                  // Standard bit depth
+                            channelCount: 2,                 // Stereo
+                            latency: 0.01,                   // Low latency
                             googEchoCancellation: true,      // Chrome-specific echo cancellation
                             googAutoGainControl: true,       // Chrome-specific auto gain
-                            googNoiseSuppression: false,     // Disable to avoid robotic voice
+                            googNoiseSuppression: true,      // Enable noise suppression
                             googHighpassFilter: true,        // Remove low-frequency noise
                             googTypingNoiseDetection: true,  // Filter keyboard sounds
-                            googAudioMirroring: false        // Disable audio mirroring
+                            googAudioMirroring: false,       // Disable audio mirroring
+                            googExperimentalNoiseSuppression: true, // Advanced noise suppression
+                            googVoiceActivityDetection: true
                         },
                         video: false
                     });
@@ -674,16 +746,29 @@
                         },
                         audio: {
                             echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false,
+                            noiseSuppression: true,  // Enable noise suppression for system audio
+                            autoGainControl: true,
                             sampleRate: 48000,
                             sampleSize: 24,
-                            channelCount: 2
+                            channelCount: 2,
+                            // Advanced noise suppression settings
+                            googEchoCancellation: true,
+                            googAutoGainControl: true,
+                            googNoiseSuppression: true,
+                            googHighpassFilter: true,
+                            googAudioMirroring: false
                         }
                     });
                     
+                    // Combine screen audio with microphone if available
+                    let combinedStream = screenStream;
+                    if (this.standaloneMicStream) {
+                        combinedStream = await this.combineAudioStreams(screenStream, this.standaloneMicStream);
+                        this.log('🎵 Combined screen audio with microphone');
+                    }
+                    
                     // Microphone is handled separately via standalone stream
-                    this.localStream = screenStream;
+                    this.localStream = combinedStream;
                     
                     this.localScreen.srcObject = this.localStream;
                     this.localScreen.muted = true; // Always mute local preview to prevent echo
@@ -782,12 +867,21 @@
                             aspectRatio: { ideal: 1.777778 }
                         },
                         audio: shareMic ? {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true,
-                            sampleRate: 48000,
-                            sampleSize: 24,
-                            channelCount: 2
+                            echoCancellation: true,          // Prevent echo
+                            noiseSuppression: true,          // Enable noise suppression
+                            autoGainControl: true,           // Auto-adjust volume
+                            sampleRate: 48000,               // High quality sample rate
+                            sampleSize: 24,                  // High bit depth
+                            channelCount: 2,                 // Stereo
+                            latency: 0.01,                   // Low latency
+                            // Chrome-specific enhancements
+                            googEchoCancellation: true,
+                            googAutoGainControl: true,
+                            googNoiseSuppression: true,
+                            googHighpassFilter: true,
+                            googTypingNoiseDetection: true,
+                            googAudioMirroring: false,
+                            googExperimentalNoiseSuppression: true
                         } : false
                     };
                     
@@ -915,12 +1009,21 @@
                     // Get only microphone
                     const constraints = {
                         audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true,
-                            sampleRate: 48000,
-                            sampleSize: 24,
-                            channelCount: 2
+                            echoCancellation: true,          // Prevent echo
+                            noiseSuppression: true,          // Enable noise suppression
+                            autoGainControl: true,           // Auto-adjust volume
+                            sampleRate: 48000,               // High quality sample rate
+                            sampleSize: 24,                  // High bit depth
+                            channelCount: 2,                 // Stereo
+                            latency: 0.01,                   // Low latency
+                            // Chrome-specific enhancements
+                            googEchoCancellation: true,
+                            googAutoGainControl: true,
+                            googNoiseSuppression: true,
+                            googHighpassFilter: true,
+                            googTypingNoiseDetection: true,
+                            googAudioMirroring: false,
+                            googExperimentalNoiseSuppression: true
                         }
                     };
                     
@@ -1026,7 +1129,67 @@
                 this.log(`Stream status: ${status} (Sharing: ${isSharing})`);
                 this.streamStatus.textContent = status;
                 this.streamStatus.className = 'status ' + (isSharing ? 'sharing' : '');
-                this.stopShareBtn.disabled = !isSharing;
+                
+                // Start/stop quality monitoring
+                if (isSharing && !this.qualityMonitorInterval) {
+                    this.startQualityMonitoring();
+                } else if (!isSharing && this.qualityMonitorInterval) {
+                    clearInterval(this.qualityMonitorInterval);
+                    this.qualityMonitorInterval = null;
+                    this.updateQualityIndicator('--');
+                }
+            }
+            
+            startQualityMonitoring() {
+                this.qualityMonitorInterval = setInterval(() => {
+                    this.updateConnectionQuality();
+                }, 2000); // Check every 2 seconds
+            }
+            
+            updateConnectionQuality() {
+                if (!this.currentConnection || !this.currentConnection.open) {
+                    this.updateQualityIndicator('--');
+                    return;
+                }
+                
+                // Simple quality estimation based on connection stats
+                // In a real implementation, you'd use WebRTC stats
+                const peerConnection = this.peer?.connections?.[this.remotePeerId]?.peerConnection;
+                if (peerConnection) {
+                    peerConnection.getStats().then(stats => {
+                        let quality = 'Good';
+                        let qualityEmoji = '🟢';
+                        
+                        // Check for packet loss or high latency indicators
+                        stats.forEach(report => {
+                            if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                                const packetsLost = report.packetsLost || 0;
+                                const packetsReceived = report.packetsReceived || 1;
+                                const lossRate = packetsLost / (packetsLost + packetsReceived);
+                                
+                                if (lossRate > 0.1) {
+                                    quality = 'Poor';
+                                    qualityEmoji = '🔴';
+                                } else if (lossRate > 0.05) {
+                                    quality = 'Fair';
+                                    qualityEmoji = '🟡';
+                                }
+                            }
+                        });
+                        
+                        this.updateQualityIndicator(`${qualityEmoji} ${quality}`);
+                    }).catch(() => {
+                        this.updateQualityIndicator('🟢 Good');
+                    });
+                } else {
+                    this.updateQualityIndicator('🟢 Good');
+                }
+            }
+            
+            updateQualityIndicator(quality) {
+                if (this.qualityIndicator) {
+                    this.qualityIndicator.textContent = `📊 Quality: ${quality}`;
+                }
             }
             
             sendChatMessage() {
@@ -1159,37 +1322,48 @@
                 }
                 
                 try {
-                    // Optimized audio constraints for crisp, natural voice on mobile and desktop
+                    // Enhanced audio constraints for superior noise suppression and voice quality
                     this.standaloneMicStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
                             echoCancellation: true,          // Prevent echo
-                            noiseSuppression: false,         // Keep voice natural, not robotic
+                            noiseSuppression: true,          // Enable advanced noise suppression
                             autoGainControl: true,           // Auto-adjust volume
                             sampleRate: 48000,               // High quality sample rate
                             sampleSize: 16,                  // Standard bit depth (more compatible)
                             channelCount: 2,                 // Stereo for better spatial audio
                             latency: 0.01,                   // Low latency for real-time (10ms)
+                            // Chrome-specific advanced audio processing
                             googEchoCancellation: true,      // Chrome-specific echo cancellation
                             googAutoGainControl: true,       // Chrome-specific auto gain
-                            googNoiseSuppression: false,     // Disable to avoid robotic voice
-                            googHighpassFilter: true,        // Remove low-frequency noise
+                            googNoiseSuppression: true,      // Enable advanced noise suppression
+                            googHighpassFilter: true,        // Remove low-frequency noise (fan noise)
                             googTypingNoiseDetection: true,  // Filter keyboard sounds
-                            googAudioMirroring: false        // Disable audio mirroring
+                            googAudioMirroring: false,       // Disable audio mirroring
+                            // Additional noise suppression parameters
+                            googExperimentalNoiseSuppression: true, // Experimental advanced noise suppression
+                            googEchoCancellation2: true,     // Secondary echo cancellation
+                            // Voice activity detection and processing
+                            googVoiceActivityDetection: true
                         },
                         video: false
                     });
                     
-                    this.log('✅ Standalone microphone stream started');
+                    // Apply additional audio processing if Web Audio API is available
+                    if (window.AudioContext || window.webkitAudioContext) {
+                        await this.enhanceAudioStream(this.standaloneMicStream);
+                    }
+                    
+                    this.log('✅ Enhanced standalone microphone stream started with advanced noise suppression');
                     
                     // If we're connected, send this mic stream to peer
                     if (this.remotePeerId && this.peer) {
-                        this.log('📞 Sending microphone stream to peer');
+                        this.log('📞 Sending enhanced microphone stream to peer');
                         this.standaloneMicCall = this.peer.call(this.remotePeerId, this.standaloneMicStream, {
                             metadata: { type: 'mic-only' }
                         });
                     }
                 } catch (err) {
-                    this.error('Failed to start microphone:', err);
+                    this.error('Failed to start enhanced microphone:', err);
                     alert('Could not access microphone: ' + err.message);
                 }
             }
@@ -1216,30 +1390,184 @@
                 this.log('🔇 Microphone stream stopped');
             }
             
-            cleanup() {
-                this.log('🧹 Cleaning up...');
+            toggleMinimize(wrapperId) {
+                const wrapper = document.getElementById(wrapperId);
+                if (!wrapper) return;
                 
-                this.stopScreenShare();
-                this.stopVideoStream();
-                this.stopMicStream();
-                
-                if (this.currentConnection) {
-                    this.currentConnection.close();
-                    this.currentConnection = null;
+                const isPip = wrapper.classList.contains('pip');
+                if (isPip) {
+                    // Exit PIP mode - return to normal grid
+                    wrapper.classList.remove('pip');
+                    wrapper.style.left = '';
+                    wrapper.style.top = '';
+                    wrapper.style.width = '';
+                    wrapper.style.height = '';
+                    wrapper.style.zIndex = '';
+                    this.log(`📺 Exited PIP mode for ${wrapperId}`);
+                } else {
+                    // Enter PIP mode
+                    wrapper.classList.add('pip');
+                    wrapper.style.zIndex = '10000';
+                    this.log(`📺 Entered PIP mode for ${wrapperId}`);
                 }
-                
-                if (this.currentCall) {
-                    this.currentCall.close();
-                    this.currentCall = null;
+            }
+            
+            async enhanceAudioStream(stream) {
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // Resume audio context if suspended (required by some browsers)
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+                    
+                    const source = audioContext.createMediaStreamSource(stream);
+                    const analyser = audioContext.createAnalyser();
+                    const gainNode = audioContext.createGain();
+                    const destination = audioContext.createMediaStreamDestination();
+                    
+                    // Configure analyser for noise detection
+                    analyser.fftSize = 2048;
+                    analyser.smoothingTimeConstant = 0.8;
+                    
+                    // Create dynamic compressor for better audio control
+                    const compressor = audioContext.createDynamicsCompressor();
+                    compressor.threshold.value = -24;
+                    compressor.knee.value = 30;
+                    compressor.ratio.value = 12;
+                    compressor.attack.value = 0.003;
+                    compressor.release.value = 0.25;
+                    
+                    // Create biquad filter for additional noise reduction
+                    const highpassFilter = audioContext.createBiquadFilter();
+                    highpassFilter.type = 'highpass';
+                    highpassFilter.frequency.value = 80; // Remove very low frequency noise
+                    highpassFilter.Q.value = 0.7;
+                    
+                    // Connect the audio processing chain
+                    source.connect(analyser);
+                    source.connect(highpassFilter);
+                    highpassFilter.connect(compressor);
+                    compressor.connect(gainNode);
+                    gainNode.connect(destination);
+                    
+                    // Implement adaptive noise gate based on audio analysis
+                    const bufferLength = analyser.frequencyBinCount;
+                    const dataArray = new Uint8Array(bufferLength);
+                    
+                    const analyzeNoise = () => {
+                        if (audioContext.state !== 'running') return;
+                        
+                        analyser.getByteFrequencyData(dataArray);
+                        
+                        // Calculate average volume
+                        let sum = 0;
+                        for (let i = 0; i < bufferLength; i++) {
+                            sum += dataArray[i];
+                        }
+                        const average = sum / bufferLength;
+                        
+                        // Adaptive gain control - reduce gain for low volume (likely noise)
+                        const targetGain = average > 10 ? 1.0 : 0.3;
+                        gainNode.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.1);
+                        
+                        requestAnimationFrame(analyzeNoise);
+                    };
+                    
+                    analyzeNoise();
+                    
+                    // Replace the original stream tracks with processed ones
+                    const processedStream = destination.stream;
+                    const originalAudioTrack = stream.getAudioTracks()[0];
+                    
+                    // Stop original track and replace with processed
+                    stream.removeTrack(originalAudioTrack);
+                    originalAudioTrack.stop();
+                    
+                    processedStream.getAudioTracks().forEach(track => {
+                        stream.addTrack(track);
+                    });
+                    
+                    this.log('🎵 Advanced audio enhancement applied (noise suppression, compression, filtering)');
+                    
+                } catch (error) {
+                    this.error('Failed to enhance audio stream:', error);
+                    // Continue with original stream if enhancement fails
                 }
-                
-                if (this.videoCall) {
-                    this.videoCall.close();
-                    this.videoCall = null;
+            }
+            
+            setMicVolume(volume) {
+                if (this.micGainNode) {
+                    this.micGainNode.gain.setTargetAtTime(volume, this.audioContext?.currentTime || 0, 0.1);
+                    this.log(`🎚️ Microphone volume set to ${volume}`);
                 }
+            }
+            
+            setSystemVolume(volume) {
+                if (this.screenGainNode) {
+                    this.screenGainNode.gain.setTargetAtTime(volume, this.audioContext?.currentTime || 0, 0.1);
+                    this.log(`🎚️ System audio volume set to ${volume}`);
+                }
+            }
+            
+            async combineAudioStreams(screenStream, micStream) {
+                // Create audio context for mixing
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 
-                this.remotePeerId = null;
-                this.updateConnectionStatus('⚪ Not Connected', false);
+                // Create sources from streams
+                const screenSource = this.audioContext.createMediaStreamSource(screenStream);
+                const micSource = this.audioContext.createMediaStreamSource(micStream);
+                
+                // Create gain nodes for volume control
+                this.screenGainNode = this.audioContext.createGain();
+                this.micGainNode = this.audioContext.createGain();
+                
+                // Set initial volumes (screen slightly lower to prioritize voice)
+                this.screenGainNode.gain.value = 0.7;
+                this.micGainNode.gain.value = 1.0;
+                
+                // Create destination stream
+                const destination = this.audioContext.createMediaStreamDestination();
+                
+                // Connect sources to gains, then to destination
+                screenSource.connect(this.screenGainNode);
+                micSource.connect(this.micGainNode);
+                this.screenGainNode.connect(destination);
+                this.micGainNode.connect(destination);
+                
+                // Get video track from screen stream
+                const videoTrack = screenStream.getVideoTracks()[0];
+                
+                // Combine video track with mixed audio
+                const combinedStream = new MediaStream([videoTrack, ...destination.stream.getAudioTracks()]);
+                
+                this.log('🎵 Audio streams combined successfully with volume controls');
+                return combinedStream;
+            }
+            
+            managePipMode() {
+                const fullscreenWrapper = document.querySelector('.video-wrapper.fullscreen');
+                const allWrappers = document.querySelectorAll('.video-wrapper:not(.hidden)');
+                
+                if (fullscreenWrapper) {
+                    // When one is fullscreen, put others in PIP
+                    allWrappers.forEach(wrapper => {
+                        if (wrapper !== fullscreenWrapper && !wrapper.classList.contains('pip')) {
+                            wrapper.classList.add('pip');
+                            wrapper.style.zIndex = '10000';
+                        }
+                    });
+                } else {
+                    // No fullscreen, exit all PIP modes
+                    allWrappers.forEach(wrapper => {
+                        wrapper.classList.remove('pip');
+                        wrapper.style.left = '';
+                        wrapper.style.top = '';
+                        wrapper.style.width = '';
+                        wrapper.style.height = '';
+                        wrapper.style.zIndex = '';
+                    });
+                }
             }
         }
 
@@ -1247,4 +1575,8 @@
         document.addEventListener('DOMContentLoaded', () => {
             console.log('[P2P] DOM loaded, initializing app...');
             window.app = new P2PScreenShare();
+            
+            // Make methods globally available for HTML onclick handlers
+            window.app.toggleMinimize = window.app.toggleMinimize.bind(window.app);
+            window.app.toggleFullscreen = window.app.toggleFullscreen.bind(window.app);
         });

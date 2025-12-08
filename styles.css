@@ -233,6 +233,41 @@
             border-radius: 12px;
         }
 
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #cbd5e1;
+            font-size: 0.9rem;
+        }
+
+        .volume-control input[type="range"] {
+            width: 80px;
+            height: 4px;
+            border-radius: 2px;
+            background: #334155;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .volume-control input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+        }
+
+        .volume-control input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            border: none;
+        }
+
         .toggle {
             display: flex;
             align-items: center;
@@ -307,7 +342,7 @@
             border-color: rgba(248, 113, 113, 0.2);
         }
 
-        .status.sharing {
+        .status.quality {
             color: #38bdf8;
             background: rgba(12, 74, 110, 0.4);
             border-color: rgba(56, 189, 248, 0.2);
@@ -587,13 +622,21 @@
             line-height: 1.6;
         }
 
-        .note {
-            color: #fbbf24;
-            font-size: 0.95rem;
-            background: rgba(251, 191, 36, 0.1);
-            padding: 10px;
-            border-radius: 8px;
-            display: inline-block;
+        .shortcuts {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        kbd {
+            background: rgba(51, 65, 85, 0.8);
+            border: 1px solid rgba(100, 149, 237, 0.3);
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 0.8rem;
+            font-family: monospace;
+            color: #e2e8f0;
         }
 
         /* P2P Chat Panel */
