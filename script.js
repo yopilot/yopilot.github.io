@@ -44,6 +44,7 @@
                 this.receiveConnectionBtn = document.getElementById('receiveConnectionBtn');
                 this.shareScreenBtn = document.getElementById('shareScreen');
                 this.stopShareBtn = document.getElementById('stopShare');
+                this.micToggle = document.getElementById('micToggle');
                 this.videoToggle = document.getElementById('videoToggle');
                 this.localScreen = document.getElementById('localScreen');
                 this.remoteScreen = document.getElementById('remoteScreen');
@@ -380,6 +381,23 @@
                 this.shareScreenBtn.addEventListener('click', () => this.startScreenShare());
                 this.stopShareBtn.addEventListener('click', () => this.stopScreenShare());
                 
+                // Mic toggle
+                if (this.micToggle) {
+                    this.micToggle.addEventListener('change', async (e) => {
+                        if (e.target.checked) {
+                            try {
+                                await this.startMicStream();
+                            } catch (err) {
+                                this.error('Mic toggle failed:', err);
+                                e.target.checked = false;
+                                this.showNotification('Microphone Error', err.message, 'error');
+                            }
+                        } else {
+                            this.stopMicStream();
+                        }
+                    });
+                }
+
                 // Video toggle
                 if (this.videoToggle) {
                     this.videoToggle.addEventListener('change', (e) => {
@@ -599,7 +617,7 @@
                     }, 2000);
                 }).catch((err) => {
                     this.error('Failed to copy:', err);
-                    alert('Failed to copy. Please copy manually: ' + id);
+                    this.showNotification('Copy Failed', 'Please copy manually: ' + id, 'error');
                 });
             }
             
@@ -612,7 +630,7 @@
             
             connectToPeer(peerId) {
                 if (!peerId || peerId === this.myIdInput.value) {
-                    alert('Invalid peer ID or cannot connect to yourself!');
+                    this.showNotification('Invalid ID', 'Cannot connect to yourself or empty ID', 'warning');
                     return;
                 }
                 
@@ -1768,6 +1786,7 @@
             async startMicStream() {
                 if (this.standaloneMicStream) {
                     this.log('⚠️ Microphone stream already active');
+                    if (this.micToggle) this.micToggle.checked = true;
                     return this.standaloneMicStream;
                 }
                 
@@ -1795,6 +1814,9 @@
                         },
                         video: false
                     });
+                    
+                    // Sync toggle UI
+                    if (this.micToggle) this.micToggle.checked = true;
                     
                     // Apply Web Audio API enhancement
                     if (window.AudioContext || window.webkitAudioContext) {
@@ -1892,6 +1914,9 @@
                     this.micAnswerStream.getTracks().forEach(track => track.stop());
                     this.micAnswerStream = null;
                 }
+                
+                // Sync toggle UI
+                if (this.micToggle) this.micToggle.checked = false;
                 
                 this.log('🔇 Microphone stream stopped');
             }
