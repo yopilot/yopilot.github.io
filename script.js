@@ -693,11 +693,11 @@
                 if (this.recordBtn) this.recordBtn.disabled = false;
                 if (this.shareFileBtn) this.shareFileBtn.disabled = false;
                 
-                // Auto-start microphone for voice chat (non-blocking)
-                this.startMicStream().catch(err => {
-                    this.error('Microphone auto-start failed:', err);
-                    // Continue without microphone if it fails
-                });
+                // CRITICAL: Start microphone with retry logic for voice chat
+                await this.startMicStreamWithRetry();
+                
+                // Start monitoring connection quality
+                this.startConnectionMonitoring();
                 
                 const chatPanel = document.getElementById('chatPanel');
                 if (chatPanel) {
@@ -706,6 +706,99 @@
                 }
                 
                 this.showNotification('Connected', 'You are now connected to your peer', 'success');
+            }
+            
+            // Monitor ICE connection state for better reliability
+            startConnectionMonitoring() {
+                if (!this.connectionMonitorInterval) {
+                    this.connectionMonitorInterval = setInterval(() => {
+                        this.checkConnectionHealth();
+                    }, 5000); // Check every 5 seconds
+                }
+            }
+            
+            async checkConnectionHealth() {
+                try {
+                    if (!this.currentCall?.peerConnection) {
+                        return;
+                    }
+                    
+                    const pc = this.currentCall.peerConnection;
+                    const iceState = pc.iceConnectionState;
+                    const connState = pc.connectionState;
+                    
+                    this.log(`🔍 Connection health: ICE=${iceState}, Connection=${connState}`);
+                    
+                    // Handle connection issues
+                    if (iceState === 'disconnected' || iceState === 'failed') {
+                        this.log('⚠️ ICE connection issue detected, attempting recovery...');
+                        this.showNotification('Connection Issue', 'Attempting to restore connection...', 'warning');
+                        
+                        // Try ICE restart if supported
+                        if (pc.restartIce) {
+                            pc.restartIce();
+                            this.log('🔄 ICE restart initiated');
+                        }
+                    }
+                    
+                    if (connState === 'failed') {
+                        this.log('❌ Connection failed, initiating reconnection...');
+                        this.showNotification('Connection Lost', 'Reconnecting...', 'error');
+                        await this.handleConnectionFailure();
+                    }
+                    
+                } catch (err) {
+                    this.error('Connection health check error:', err);
+                }
+            }
+            
+            async handleConnectionFailure() {
+                // Close current call
+                if (this.currentCall) {
+                    this.currentCall.close();
+                    this.currentCall = null;
+                }
+                
+                // Clear remote streams
+                this.cleanupRemoteStreams();
+                
+                // Wait a moment then try to re-establish
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Restart microphone to peer if we still have connection
+                if (this.remotePeerId && this.standaloneMicStream) {
+                    try {
+                        await this.sendMicStreamToPeer();
+                        this.showNotification('Reconnected', 'Voice connection restored', 'success');
+                    } catch (err) {
+                        this.error('Reconnection failed:', err);
+                        this.showNotification('Reconnection Failed', 'Please reconnect manually', 'error');
+                    }
+                }
+            }
+            
+            // New: Microphone startup with retry and better error handling
+            async startMicStreamWithRetry(retries = 3) {
+                for (let attempt = 1; attempt <= retries; attempt++) {
+                    try {
+                        await this.startMicStream();
+                        this.log(`✅ Microphone started successfully on attempt ${attempt}`);
+                        return true;
+                    } catch (err) {
+                        this.error(`Microphone attempt ${attempt} failed:`, err);
+                        if (attempt === retries) {
+                            this.showNotification(
+                                'Microphone Failed', 
+                                'Voice chat unavailable. You can still share screen/video.', 
+                                'warning'
+                            );
+                            return false;
+                        }
+                        // Wait before retry
+                        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+                    }
+                }
+                return false;
             }
             
             handleIncomingConnection(conn) {
@@ -732,6 +825,8 @@
             async handleIncomingCall(call) {
                 this.currentCall = call;
                 
+                this.log(`📞 Incoming call from ${call.peer}, type: ${call.metadata?.type || 'unknown'}`);
+                
                 // Always answer with microphone for voice chat
                 let answerStream = null;
                 
@@ -739,211 +834,339 @@
                     // Create optimized microphone stream to send back
                     answerStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
-                            echoCancellation: true,          // Prevent echo
-                            noiseSuppression: true,          // Enable noise suppression
-                            autoGainControl: true,           // Auto-adjust volume
-                            sampleRate: 48000,               // High quality sample rate
-                            sampleSize: 16,                  // Standard bit depth
-                            channelCount: 2,                 // Stereo
-                            latency: 0.01,                   // Low latency
-                            googEchoCancellation: true,      // Chrome-specific echo cancellation
-                            googAutoGainControl: true,       // Chrome-specific auto gain
-                            googNoiseSuppression: true,      // Enable noise suppression
-                            googHighpassFilter: true,        // Remove low-frequency noise
-                            googTypingNoiseDetection: true,  // Filter keyboard sounds
-                            googAudioMirroring: false,       // Disable audio mirroring
-                            googExperimentalNoiseSuppression: true, // Advanced noise suppression
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 48000,
+                            sampleSize: 16,
+                            channelCount: 2,
+                            latency: 0.01,
+                            googEchoCancellation: true,
+                            googAutoGainControl: true,
+                            googNoiseSuppression: true,
+                            googHighpassFilter: true,
+                            googTypingNoiseDetection: true,
+                            googAudioMirroring: false,
+                            googExperimentalNoiseSuppression: true,
                             googVoiceActivityDetection: true
                         },
                         video: false
                     });
+                    
+                    // Store for cleanup
+                    if (!this.micAnswerStream) {
+                        this.micAnswerStream = answerStream;
+                    }
+                    
                     this.log('✅ Answering call with microphone enabled');
                 } catch (err) {
                     this.log('⚠️ Could not access microphone for answer:', err.message);
+                    // Continue without mic
                 }
                 
                 // Answer the call with or without mic stream
                 if (answerStream) {
                     call.answer(answerStream);
-                    if (!this.micAnswerStream) {
-                        this.micAnswerStream = answerStream;
-                    }
                 } else {
-                    call.answer();
+                    call.answer(); // Answer without sending stream
                 }
                 
+                // Handle incoming stream with proper routing
                 call.on('stream', (remoteStream) => {
                     this.log('📺 Receiving remote stream, metadata:', call.metadata);
                     
                     // Log quality info
-                    const videoTrack = remoteStream.getVideoTracks()[0];
-                    if (videoTrack) {
-                        const settings = videoTrack.getSettings();
+                    const audioTracks = remoteStream.getAudioTracks();
+                    const videoTracks = remoteStream.getVideoTracks();
+                    
+                    this.log(`Stream has ${audioTracks.length} audio tracks, ${videoTracks.length} video tracks`);
+                    
+                    if (videoTracks.length > 0) {
+                        const settings = videoTracks[0].getSettings();
                         this.log(`📊 Video quality: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`);
                     }
                     
-                    // Route based on metadata type
-                    if (call.metadata && call.metadata.type === 'screen') {
-                        this.log('Routing to remote screen share');
-                        this.remoteScreen.srcObject = remoteStream;
-                        this.remoteScreen.play().catch(e => this.error('Error playing remote screen:', e));
-                        document.getElementById('remoteScreenWrapper').classList.remove('hidden');
-                        this.activeStreams.screenRemote = true;
-                    } else if (call.metadata && call.metadata.type === 'camera') {
-                        this.log('Routing to remote video call');
-                        this.remoteVideo.srcObject = remoteStream;
-                        this.remoteVideo.play().catch(e => this.error('Error playing remote video:', e));
-                        document.getElementById('remoteVideoWrapper').classList.remove('hidden');
-                        this.activeStreams.videoRemote = true;
-                    } else if (call.metadata && call.metadata.type === 'audio') {
-                        this.log('Routing to remote audio call');
-                        if (!this.remoteAudioElement) {
-                            this.remoteAudioElement = document.createElement('audio');
-                            this.remoteAudioElement.autoplay = true;
-                            document.body.appendChild(this.remoteAudioElement);
-                        }
-                        this.remoteAudioElement.srcObject = remoteStream;
-                    } else if (call.metadata && call.metadata.type === 'mic-only') {
-                        this.log('Routing to microphone-only stream (background audio)');
-                        if (!this.remoteMicElement) {
-                            this.remoteMicElement = document.createElement('audio');
-                            this.remoteMicElement.autoplay = true;
-                            this.remoteMicElement.volume = 1.0;
-                            // Optimize for real-time playback with no buffering
-                            this.remoteMicElement.playsInline = true;
-                            this.remoteMicElement.muted = false;
-                            this.remoteMicElement.preload = 'none';
-                            // Disable buffering for real-time audio
-                            this.remoteMicElement.setAttribute('playsinline', 'true');
-                            this.remoteMicElement.setAttribute('webkit-playsinline', 'true');
-                            document.body.appendChild(this.remoteMicElement);
-                        }
-                        this.remoteMicElement.srcObject = remoteStream;
-                        // Explicitly play to ensure audio starts immediately
-                        this.remoteMicElement.play().then(() => {
-                            this.log('✅ Friend\'s microphone audio playing in background (real-time)');
-                        }).catch(err => {
-                            this.error('Failed to play remote audio:', err);
-                        });
+                    if (audioTracks.length > 0) {
+                        this.log(`🔊 Audio tracks: ${audioTracks.map(t => t.label).join(', ')}`);
+                    }
+                    
+                    // Route based on metadata type with fallback logic
+                    const callType = call.metadata?.type;
+                    
+                    if (callType === 'screen') {
+                        this.handleScreenStream(remoteStream);
+                    } else if (callType === 'camera') {
+                        this.handleCameraStream(remoteStream);
+                    } else if (callType === 'audio') {
+                        this.handleAudioOnlyStream(remoteStream);
+                    } else if (callType === 'mic-only') {
+                        this.handleMicOnlyStream(remoteStream);
                     } else {
-                        // Fallback: guess based on track label
-                        if (videoTrack && (videoTrack.label.toLowerCase().includes('screen') || videoTrack.label.toLowerCase().includes('monitor'))) {
-                            this.remoteScreen.srcObject = remoteStream;
-                            this.remoteScreen.play().catch(e => this.error('Error playing remote screen:', e));
-                            document.getElementById('remoteScreenWrapper').classList.remove('hidden');
-                            this.activeStreams.screenRemote = true;
-                        } else {
-                            this.remoteVideo.srcObject = remoteStream;
-                            this.remoteVideo.play().catch(e => this.error('Error playing remote video:', e));
-                            document.getElementById('remoteVideoWrapper').classList.remove('hidden');
-                            this.activeStreams.videoRemote = true;
-                        }
+                        // Intelligent fallback based on tracks
+                        this.handleUnknownStream(remoteStream, videoTracks[0]);
                     }
                 });
                 
                 call.on('close', () => {
-                    this.log('📞 Call ended');
-                    this.remoteVideo.srcObject = null;
+                    this.log('📞 Call closed');
+                    this.cleanupRemoteStreams();
                 });
                 
                 call.on('error', (err) => {
                     this.error('Call error:', err);
+                    this.showNotification('Call Error', err.message, 'error');
                 });
+            }
+            
+            // New helper methods for better stream routing
+            handleScreenStream(stream) {
+                this.log('📺 Routing to remote screen share');
+                this.remoteScreen.srcObject = stream;
+                this.remoteScreen.play()
+                    .then(() => this.log('✅ Remote screen playing'))
+                    .catch(e => this.error('Error playing remote screen:', e));
+                document.getElementById('remoteScreenWrapper').classList.remove('hidden');
+                this.activeStreams.screenRemote = true;
+            }
+            
+            handleCameraStream(stream) {
+                this.log('📹 Routing to remote video call');
+                this.remoteVideo.srcObject = stream;
+                this.remoteVideo.play()
+                    .then(() => this.log('✅ Remote video playing'))
+                    .catch(e => this.error('Error playing remote video:', e));
+                document.getElementById('remoteVideoWrapper').classList.remove('hidden');
+                this.activeStreams.videoRemote = true;
+            }
+            
+            handleAudioOnlyStream(stream) {
+                this.log('🔊 Routing to remote audio call');
+                if (!this.remoteAudioElement) {
+                    this.remoteAudioElement = document.createElement('audio');
+                    this.remoteAudioElement.autoplay = true;
+                    this.remoteAudioElement.volume = 1.0;
+                    document.body.appendChild(this.remoteAudioElement);
+                }
+                this.remoteAudioElement.srcObject = stream;
+                this.remoteAudioElement.play()
+                    .then(() => this.log('✅ Remote audio playing'))
+                    .catch(err => this.error('Failed to play remote audio:', err));
+            }
+            
+            handleMicOnlyStream(stream) {
+                this.log('🎤 Routing to microphone-only stream (background audio)');
+                if (!this.remoteMicElement) {
+                    this.remoteMicElement = document.createElement('audio');
+                    this.remoteMicElement.autoplay = true;
+                    this.remoteMicElement.volume = 1.0;
+                    this.remoteMicElement.playsInline = true;
+                    this.remoteMicElement.muted = false;
+                    document.body.appendChild(this.remoteMicElement);
+                }
+                this.remoteMicElement.srcObject = stream;
+                this.remoteMicElement.play()
+                    .then(() => this.log('✅ Friend\'s microphone audio playing'))
+                    .catch(err => this.error('Failed to play remote mic:', err));
+            }
+            
+            handleUnknownStream(stream, videoTrack) {
+                this.log('🔍 Unknown stream type, using intelligent fallback');
+                
+                if (videoTrack) {
+                    const label = videoTrack.label.toLowerCase();
+                    if (label.includes('screen') || label.includes('monitor') || label.includes('window')) {
+                        this.handleScreenStream(stream);
+                    } else {
+                        this.handleCameraStream(stream);
+                    }
+                } else {
+                    // Audio only
+                    this.handleAudioOnlyStream(stream);
+                }
+            }
+            
+            cleanupRemoteStreams() {
+                // Clean up all remote stream elements
+                if (this.remoteScreen.srcObject) {
+                    this.remoteScreen.srcObject.getTracks().forEach(track => track.stop());
+                    this.remoteScreen.srcObject = null;
+                }
+                
+                if (this.remoteVideo.srcObject) {
+                    this.remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+                    this.remoteVideo.srcObject = null;
+                }
+                
+                if (this.remoteAudioElement?.srcObject) {
+                    this.remoteAudioElement.srcObject.getTracks().forEach(track => track.stop());
+                    this.remoteAudioElement.srcObject = null;
+                }
+                
+                if (this.remoteMicElement?.srcObject) {
+                    this.remoteMicElement.srcObject.getTracks().forEach(track => track.stop());
+                    this.remoteMicElement.srcObject = null;
+                }
+                
+                this.log('🧹 Remote streams cleaned up');
             }
             
             async startScreenShare() {
                 try {
                     this.log('🖥️ Requesting screen share...');
                     
-                    // Stop video stream if active
+                    // Stop video stream if active to prevent conflicts
                     if (this.videoStream) {
                         this.stopVideoStream();
                     }
                     
-                    // Get screen with system audio (always on for movie sound)
+                    // Get screen with system audio
                     const screenStream = await navigator.mediaDevices.getDisplayMedia({
                         video: {
-                            width: { ideal: 3840, max: 3840 },
-                            height: { ideal: 2160, max: 2160 },
-                            frameRate: { ideal: 60, max: 60 },
+                            width: { ideal: this.getQualityWidth(), max: 3840 },
+                            height: { ideal: this.getQualityHeight(), max: 2160 },
+                            frameRate: { ideal: this.qualitySettings.frameRate, max: 60 },
                             cursor: 'always',
                             displaySurface: 'monitor'
                         },
                         audio: {
-                            echoCancellation: false,
-                            noiseSuppression: true,  // Enable noise suppression for system audio
-                            autoGainControl: true,
+                            echoCancellation: false,  // Don't cancel system audio
+                            noiseSuppression: false,  // Keep system audio pure
+                            autoGainControl: false,   // Don't modify system audio
                             sampleRate: 48000,
                             sampleSize: 24,
-                            channelCount: 2,
-                            // Advanced noise suppression settings
-                            googEchoCancellation: true,
-                            googAutoGainControl: true,
-                            googNoiseSuppression: true,
-                            googHighpassFilter: true,
-                            googAudioMirroring: false
+                            channelCount: 2
                         }
                     });
                     
+                    this.log('✅ Screen stream obtained');
+                    
                     // Combine screen audio with microphone if available
-                    let combinedStream = screenStream;
+                    let finalStream = screenStream;
+                    
                     if (this.standaloneMicStream) {
-                        combinedStream = await this.combineAudioStreams(screenStream, this.standaloneMicStream);
-                        this.log('🎵 Combined screen audio with microphone');
+                        try {
+                            finalStream = await this.combineAudioStreams(screenStream, this.standaloneMicStream);
+                            this.log('🎵 Combined screen audio + microphone');
+                        } catch (combineErr) {
+                            this.error('Audio combine failed, using screen only:', combineErr);
+                            finalStream = screenStream;
+                        }
+                    } else {
+                        this.log('ℹ️ No microphone stream to combine, screen audio only');
                     }
                     
-                    // Microphone is handled separately via standalone stream
-                    this.localStream = combinedStream;
+                    this.localStream = finalStream;
                     
+                    // Display local preview
                     this.localScreen.srcObject = this.localStream;
-                    this.localScreen.muted = true; // Always mute local preview to prevent echo
-                    this.localScreen.play().catch(e => this.error('Error playing local screen:', e));
+                    this.localScreen.muted = true; // Always mute local to prevent echo
+                    await this.localScreen.play().catch(e => this.error('Error playing local screen:', e));
+                    
                     document.getElementById('localScreenWrapper').classList.remove('hidden');
                     this.activeStreams.screenLocal = true;
                     
-                    this.updateStreamStatus('🟢 Sharing', true);
+                    this.updateStreamStatus('🟢 Sharing Screen', true);
                     this.log('✅ Screen sharing started');
                     this.isScreenSharing = true;
                     
+                    // Send to peer if connected
                     if (this.remotePeerId) {
-                        this.log('📞 Calling peer with screen share...');
-                        this.currentCall = this.peer.call(this.remotePeerId, this.localStream, {
-                            metadata: { type: 'screen' },
-                            constraints: {
-                                mandatory: {
-                                    OfferToReceiveAudio: true,
-                                    OfferToReceiveVideo: true
-                                }
-                            },
-                            sdpTransform: (sdp) => {
-                                // Increase bitrate for 4K quality
-                                return sdp.replace(/a=fmtp:.*\r\n/g, (match) => {
-                                    return match + 'a=max-message-size:262144\r\n';
-                                }).replace(/(m=video.*\r\n)/g, '$1b=AS:10000\r\n')
-                                  .replace(/(m=audio.*\r\n)/g, '$1b=AS:510\r\n');
-                            }
-                        });
-                        
-                        this.currentCall.on('stream', (remoteStream) => {
-                            this.log('📺 Receiving remote stream');
-                            this.remoteVideo.srcObject = remoteStream;
-                            this.remoteVideo.play().catch(e => this.error('Error playing remote video:', e));
-                        });
+                        await this.sendScreenToPeer();
                     }
                     
+                    // Handle screen share stop
                     screenStream.getVideoTracks()[0].onended = () => {
                         this.log('🛑 Screen sharing stopped by user');
                         this.stopScreenShare();
                     };
                     
+                    this.showNotification('Screen Sharing', 'Your screen is now being shared', 'success');
+                    
                 } catch (error) {
                     this.error('Failed to start screen sharing:', error);
+                    
+                    let errorMsg = 'Failed to start screen sharing';
                     if (error.name === 'NotAllowedError') {
-                        alert('Screen sharing permission denied. Please allow screen sharing and try again.');
-                    } else {
-                        alert('Failed to start screen sharing: ' + error.message);
+                        errorMsg = 'Screen sharing permission denied';
+                    } else if (error.name === 'NotFoundError') {
+                        errorMsg = 'No screen available to share';
+                    } else if (error.message) {
+                        errorMsg = error.message;
                     }
+                    
+                    this.showNotification('Screen Share Failed', errorMsg, 'error');
                 }
+            }
+            
+            async sendScreenToPeer() {
+                if (!this.localStream || !this.remotePeerId) {
+                    this.log('⚠️ Cannot send screen: missing stream or peer');
+                    return;
+                }
+                
+                try {
+                    this.log('📞 Sending screen share to peer...');
+                    
+                    // Close existing call if any
+                    if (this.currentCall) {
+                        this.currentCall.close();
+                    }
+                    
+                    this.currentCall = this.peer.call(
+                        this.remotePeerId, 
+                        this.localStream, 
+                        {
+                            metadata: { type: 'screen' },
+                            sdpTransform: (sdp) => {
+                                // Optimize SDP for high quality
+                                const bitrate = this.qualitySettings.bitrate || 5000;
+                                return sdp
+                                    .replace(/(m=video.*\r\n)/g, `$1b=AS:${bitrate}\r\n`)
+                                    .replace(/(m=audio.*\r\n)/g, '$1b=AS:510\r\n');
+                            }
+                        }
+                    );
+                    
+                    this.currentCall.on('stream', (remoteStream) => {
+                        this.log('📺 Received stream from peer during screen share');
+                        // Peer may be sending their cam/mic back
+                        this.handleCameraStream(remoteStream);
+                    });
+                    
+                    this.currentCall.on('close', () => {
+                        this.log('📞 Screen share call closed');
+                    });
+                    
+                    this.currentCall.on('error', (err) => {
+                        this.error('Screen share call error:', err);
+                    });
+                    
+                    this.log('✅ Screen share sent to peer');
+                    
+                } catch (err) {
+                    this.error('Failed to send screen to peer:', err);
+                    this.showNotification('Send Failed', 'Could not send screen to peer', 'error');
+                }
+            }
+            
+            getQualityWidth() {
+                const qualities = {
+                    '4k': 3840,
+                    '1080p': 1920,
+                    '720p': 1280,
+                    '480p': 854
+                };
+                return qualities[this.qualitySettings.videoQuality] || 1920;
+            }
+            
+            getQualityHeight() {
+                const qualities = {
+                    '4k': 2160,
+                    '1080p': 1080,
+                    '720p': 720,
+                    '480p': 480
+                };
+                return qualities[this.qualitySettings.videoQuality] || 1080;
             }
             
             stopScreenShare() {
@@ -1393,103 +1616,258 @@
                 }
                 
                 try {
+                    this.log('📹 Starting camera stream...');
+                    
+                    // Get high-quality video with user-selected quality settings
                     this.videoStream = await navigator.mediaDevices.getUserMedia({
                         video: {
-                            width: { ideal: 1920 },
-                            height: { ideal: 1080 },
-                            frameRate: { ideal: 30 },
-                            facingMode: 'user'
+                            width: { ideal: this.getQualityWidth(), max: 3840 },
+                            height: { ideal: this.getQualityHeight(), max: 2160 },
+                            frameRate: { ideal: this.qualitySettings.frameRate, max: 60 },
+                            facingMode: 'user',
+                            aspectRatio: { ideal: 16/9 }
                         },
-                        audio: false // Audio is handled separately via mic stream
+                        audio: false // Audio is always handled separately via mic stream
                     });
                     
-                    this.localVideo.srcObject = this.videoStream;
-                    this.localVideo.muted = true;
-                    this.localVideo.play();
+                    this.log('✅ Camera stream obtained');
+                    
+                    // Combine with microphone for complete video call
+                    let finalStream = this.videoStream;
+                    
+                    if (this.standaloneMicStream) {
+                        try {
+                            // Combine video from camera with audio from mic
+                            const videoTrack = this.videoStream.getVideoTracks()[0];
+                            const audioTracks = this.standaloneMicStream.getAudioTracks();
+                            
+                            finalStream = new MediaStream([videoTrack, ...audioTracks]);
+                            this.log('🎥 Combined camera video + microphone audio');
+                        } catch (combineErr) {
+                            this.error('Failed to combine camera and mic:', combineErr);
+                            finalStream = this.videoStream;
+                        }
+                    } else {
+                        this.log('ℹ️ No microphone stream, camera video only');
+                    }
+                    
+                    // Update local preview
+                    this.localVideo.srcObject = this.videoStream; // Show camera only locally
+                    this.localVideo.muted = true; // Mute local to prevent echo
+                    await this.localVideo.play().catch(e => this.error('Error playing local video:', e));
+                    
                     document.getElementById('localVideoWrapper').classList.remove('hidden');
                     
-                    this.log('✅ Camera started');
+                    this.log('✅ Camera started and displaying locally');
                     
-                    // Send video to peer if connected
+                    // Send combined stream to peer if connected
                     if (this.remotePeerId && this.peer) {
-                        this.videoCall = this.peer.call(this.remotePeerId, this.videoStream, {
-                            metadata: { type: 'camera' }
-                        });
+                        await this.sendCameraToPeer(finalStream);
                     }
+                    
+                    this.showNotification('Camera Started', 'Your camera is now active', 'success');
+                    
                 } catch (err) {
                     this.error('Failed to start camera:', err);
-                    alert('Could not access camera: ' + err.message);
+                    
+                    let errorMsg = 'Could not access camera';
+                    if (err.name === 'NotAllowedError') {
+                        errorMsg = 'Camera permission denied';
+                    } else if (err.name === 'NotFoundError') {
+                        errorMsg = 'No camera found';
+                    } else if (err.message) {
+                        errorMsg = err.message;
+                    }
+                    
+                    this.showNotification('Camera Failed', errorMsg, 'error');
+                    
                     if (this.videoToggle) this.videoToggle.checked = false;
+                }
+            }
+            
+            async sendCameraToPeer(stream) {
+                if (!stream || !this.remotePeerId) {
+                    this.log('⚠️ Cannot send camera: missing stream or peer');
+                    return;
+                }
+                
+                try {
+                    this.log('📞 Sending camera stream to peer...');
+                    
+                    // Close existing video call if any
+                    if (this.videoCall) {
+                        this.videoCall.close();
+                    }
+                    
+                    this.videoCall = this.peer.call(
+                        this.remotePeerId, 
+                        stream,
+                        {
+                            metadata: { type: 'camera' },
+                            sdpTransform: (sdp) => {
+                                // Optimize for video quality
+                                const bitrate = this.qualitySettings.bitrate || 2500;
+                                return sdp
+                                    .replace(/(m=video.*\r\n)/g, `$1b=AS:${bitrate}\r\n`)
+                                    .replace(/(m=audio.*\r\n)/g, '$1b=AS:510\r\n');
+                            }
+                        }
+                    );
+                    
+                    this.videoCall.on('stream', (remoteStream) => {
+                        this.log('📺 Received stream from peer during camera call');
+                        // Handle whatever peer sends back
+                        if (remoteStream.getVideoTracks().length > 0) {
+                            this.handleCameraStream(remoteStream);
+                        } else if (remoteStream.getAudioTracks().length > 0) {
+                            this.handleAudioOnlyStream(remoteStream);
+                        }
+                    });
+                    
+                    this.videoCall.on('close', () => {
+                        this.log('📞 Camera call closed');
+                    });
+                    
+                    this.videoCall.on('error', (err) => {
+                        this.error('Camera call error:', err);
+                    });
+                    
+                    this.log('✅ Camera stream sent to peer');
+                    
+                } catch (err) {
+                    this.error('Failed to send camera to peer:', err);
+                    this.showNotification('Send Failed', 'Could not send camera to peer', 'error');
                 }
             }
             
             stopVideoStream() {
                 if (this.videoStream) {
-                    this.videoStream.getTracks().forEach(track => track.stop());
+                    this.videoStream.getTracks().forEach(track => {
+                        track.stop();
+                        this.log(`🛑 Stopped ${track.kind} track`);
+                    });
                     this.videoStream = null;
                 }
                 
                 if (this.videoCall) {
                     this.videoCall.close();
                     this.videoCall = null;
+                    this.log('📞 Closed camera call');
                 }
                 
                 this.localVideo.srcObject = null;
                 document.getElementById('localVideoWrapper').classList.add('hidden');
                 
-                this.log('📹 Camera stopped');
+                this.log('📹 Camera fully stopped');
+                this.showNotification('Camera Stopped', 'Your camera has been turned off', 'info');
             }
             
             async startMicStream() {
                 if (this.standaloneMicStream) {
                     this.log('⚠️ Microphone stream already active');
-                    return;
+                    return this.standaloneMicStream;
                 }
                 
                 try {
-                    // Enhanced audio constraints for superior noise suppression and voice quality
+                    this.log('🎤 Starting enhanced microphone stream...');
+                    
+                    // Enhanced audio constraints for superior quality
                     this.standaloneMicStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
-                            echoCancellation: true,          // Prevent echo
-                            noiseSuppression: true,          // Enable advanced noise suppression
-                            autoGainControl: true,           // Auto-adjust volume
-                            sampleRate: 48000,               // High quality sample rate
-                            sampleSize: 16,                  // Standard bit depth (more compatible)
-                            channelCount: 2,                 // Stereo for better spatial audio
-                            latency: 0.01,                   // Low latency for real-time (10ms)
-                            // Chrome-specific advanced audio processing
-                            googEchoCancellation: true,      // Chrome-specific echo cancellation
-                            googAutoGainControl: true,       // Chrome-specific auto gain
-                            googNoiseSuppression: true,      // Enable advanced noise suppression
-                            googHighpassFilter: true,        // Remove low-frequency noise (fan noise)
-                            googTypingNoiseDetection: true,  // Filter keyboard sounds
-                            googAudioMirroring: false,       // Disable audio mirroring
-                            // Additional noise suppression parameters
-                            googExperimentalNoiseSuppression: true, // Experimental advanced noise suppression
-                            googEchoCancellation2: true,     // Secondary echo cancellation
-                            // Voice activity detection and processing
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 48000,
+                            sampleSize: 16,
+                            channelCount: 2,
+                            latency: 0.01,
+                            googEchoCancellation: true,
+                            googAutoGainControl: true,
+                            googNoiseSuppression: true,
+                            googHighpassFilter: true,
+                            googTypingNoiseDetection: true,
+                            googAudioMirroring: false,
+                            googExperimentalNoiseSuppression: true,
                             googVoiceActivityDetection: true
                         },
                         video: false
                     });
                     
-                    // Apply additional audio processing if Web Audio API is available
+                    // Apply Web Audio API enhancement
                     if (window.AudioContext || window.webkitAudioContext) {
-                        await this.enhanceAudioStream(this.standaloneMicStream);
+                        try {
+                            await this.enhanceAudioStream(this.standaloneMicStream);
+                        } catch (enhanceErr) {
+                            this.log('⚠️ Audio enhancement failed, using standard stream:', enhanceErr);
+                        }
                     }
                     
-                    this.log('✅ Enhanced standalone microphone stream started with advanced noise suppression');
+                    this.log('✅ Microphone stream started with advanced processing');
                     
-                    // If we're connected, send this mic stream to peer
-                    if (this.remotePeerId && this.peer) {
-                        this.log('📞 Sending enhanced microphone stream to peer');
-                        this.standaloneMicCall = this.peer.call(this.remotePeerId, this.standaloneMicStream, {
-                            metadata: { type: 'mic-only' }
-                        });
+                    // If connected, send mic stream to peer immediately
+                    if (this.remotePeerId && this.peer && !this.standaloneMicCall) {
+                        await this.sendMicStreamToPeer();
                     }
+                    
+                    return this.standaloneMicStream;
+                    
                 } catch (err) {
-                    this.error('Failed to start enhanced microphone:', err);
-                    alert('Could not access microphone: ' + err.message);
+                    this.error('Failed to start microphone:', err);
+                    
+                    // User-friendly error messages
+                    if (err.name === 'NotAllowedError') {
+                        throw new Error('Microphone permission denied. Please allow microphone access.');
+                    } else if (err.name === 'NotFoundError') {
+                        throw new Error('No microphone found. Please connect a microphone.');
+                    } else if (err.name === 'NotReadableError') {
+                        throw new Error('Microphone is being used by another application.');
+                    } else {
+                        throw new Error(`Microphone error: ${err.message}`);
+                    }
+                }
+            }
+            
+            async sendMicStreamToPeer() {
+                if (!this.standaloneMicStream || !this.remotePeerId) {
+                    this.log('⚠️ Cannot send mic stream: missing stream or peer ID');
+                    return;
+                }
+                
+                try {
+                    this.log('📞 Sending microphone stream to peer...');
+                    
+                    // Close existing mic call if any
+                    if (this.standaloneMicCall) {
+                        this.standaloneMicCall.close();
+                    }
+                    
+                    this.standaloneMicCall = this.peer.call(
+                        this.remotePeerId, 
+                        this.standaloneMicStream, 
+                        {
+                            metadata: { type: 'mic-only' }
+                        }
+                    );
+                    
+                    // Handle mic call events
+                    this.standaloneMicCall.on('stream', (remoteStream) => {
+                        this.log('🔊 Received return audio from peer');
+                        // This is the peer's mic stream coming back
+                        this.handleMicOnlyStream(remoteStream);
+                    });
+                    
+                    this.standaloneMicCall.on('close', () => {
+                        this.log('🔇 Mic call closed');
+                    });
+                    
+                    this.standaloneMicCall.on('error', (err) => {
+                        this.error('Mic call error:', err);
+                    });
+                    
+                    this.log('✅ Microphone stream sent to peer');
+                    
+                } catch (err) {
+                    this.error('Failed to send mic stream:', err);
                 }
             }
             
@@ -1636,38 +2014,90 @@
             }
             
             async combineAudioStreams(screenStream, micStream) {
-                // Create audio context for mixing
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // Create sources from streams
-                const screenSource = this.audioContext.createMediaStreamSource(screenStream);
-                const micSource = this.audioContext.createMediaStreamSource(micStream);
-                
-                // Create gain nodes for volume control
-                this.screenGainNode = this.audioContext.createGain();
-                this.micGainNode = this.audioContext.createGain();
-                
-                // Set initial volumes (screen slightly lower to prioritize voice)
-                this.screenGainNode.gain.value = 0.7;
-                this.micGainNode.gain.value = 1.0;
-                
-                // Create destination stream
-                const destination = this.audioContext.createMediaStreamDestination();
-                
-                // Connect sources to gains, then to destination
-                screenSource.connect(this.screenGainNode);
-                micSource.connect(this.micGainNode);
-                this.screenGainNode.connect(destination);
-                this.micGainNode.connect(destination);
-                
-                // Get video track from screen stream
-                const videoTrack = screenStream.getVideoTracks()[0];
-                
-                // Combine video track with mixed audio
-                const combinedStream = new MediaStream([videoTrack, ...destination.stream.getAudioTracks()]);
-                
-                this.log('🎵 Audio streams combined successfully with volume controls');
-                return combinedStream;
+                try {
+                    this.log('🎛️ Combining audio streams with Web Audio API...');
+                    
+                    // Create audio context with optimal settings
+                    if (!this.audioContext) {
+                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                            latencyHint: 'interactive',
+                            sampleRate: 48000
+                        });
+                    }
+                    
+                    // Resume context if suspended (browser autoplay policy)
+                    if (this.audioContext.state === 'suspended') {
+                        await this.audioContext.resume();
+                    }
+                    
+                    // Create sources from streams
+                    const screenAudioTracks = screenStream.getAudioTracks();
+                    const micAudioTracks = micStream.getAudioTracks();
+                    
+                    if (screenAudioTracks.length === 0) {
+                        this.log('⚠️ No screen audio tracks, using mic only');
+                        // Return screen video + mic audio
+                        const videoTrack = screenStream.getVideoTracks()[0];
+                        return new MediaStream([videoTrack, ...micAudioTracks]);
+                    }
+                    
+                    if (micAudioTracks.length === 0) {
+                        this.log('⚠️ No mic audio tracks, using screen audio only');
+                        return screenStream;
+                    }
+                    
+                    // Both have audio, mix them
+                    const screenAudioStream = new MediaStream(screenAudioTracks);
+                    const micAudioStream = new MediaStream(micAudioTracks);
+                    
+                    const screenSource = this.audioContext.createMediaStreamSource(screenAudioStream);
+                    const micSource = this.audioContext.createMediaStreamSource(micAudioStream);
+                    
+                    // Create compressor for balanced audio
+                    const compressor = this.audioContext.createDynamicsCompressor();
+                    compressor.threshold.value = -24;
+                    compressor.knee.value = 30;
+                    compressor.ratio.value = 12;
+                    compressor.attack.value = 0.003;
+                    compressor.release.value = 0.25;
+                    
+                    // Create gain nodes for volume control
+                    this.screenGainNode = this.audioContext.createGain();
+                    this.micGainNode = this.audioContext.createGain();
+                    
+                    // Set volumes - prioritize voice slightly
+                    this.screenGainNode.gain.value = 0.65;  // Screen audio (movies, music)
+                    this.micGainNode.gain.value = 0.85;     // Microphone (voice)
+                    
+                    // Create destination stream
+                    const destination = this.audioContext.createMediaStreamDestination();
+                    
+                    // Connect: source -> gain -> compressor -> destination
+                    screenSource.connect(this.screenGainNode);
+                    micSource.connect(this.micGainNode);
+                    this.screenGainNode.connect(compressor);
+                    this.micGainNode.connect(compressor);
+                    compressor.connect(destination);
+                    
+                    // Get video track from screen stream
+                    const videoTrack = screenStream.getVideoTracks()[0];
+                    
+                    // Combine video track with mixed audio
+                    const combinedStream = new MediaStream([
+                        videoTrack, 
+                        ...destination.stream.getAudioTracks()
+                    ]);
+                    
+                    this.log('✅ Audio streams mixed: screen (65%) + mic (85%) with compression');
+                    return combinedStream;
+                    
+                } catch (err) {
+                    this.error('Failed to combine audio streams:', err);
+                    // Fallback: return screen stream with video + mic audio
+                    const videoTrack = screenStream.getVideoTracks()[0];
+                    const micAudio = micStream.getAudioTracks();
+                    return new MediaStream([videoTrack, ...micAudio]);
+                }
             }
             
             managePipMode() {
@@ -2127,6 +2557,13 @@
             cleanup() {
                 this.log('🧹 Cleaning up resources...');
                 
+                // Stop connection monitoring
+                if (this.connectionMonitorInterval) {
+                    clearInterval(this.connectionMonitorInterval);
+                    this.connectionMonitorInterval = null;
+                    this.log('🛑 Stopped connection monitoring');
+                }
+                
                 // Stop recording if active
                 if (this.isRecording) {
                     this.stopRecording();
@@ -2154,15 +2591,38 @@
                     this.standaloneMicStream = null;
                 }
                 
+                if (this.micAnswerStream) {
+                    this.micAnswerStream.getTracks().forEach(track => track.stop());
+                    this.micAnswerStream = null;
+                }
+                
                 // Close connections
                 if (this.currentCall) {
                     this.currentCall.close();
                     this.currentCall = null;
                 }
                 
+                if (this.videoCall) {
+                    this.videoCall.close();
+                    this.videoCall = null;
+                }
+                
                 if (this.currentConnection) {
                     this.currentConnection.close();
                     this.currentConnection = null;
+                }
+                
+                // Clean up remote audio elements
+                if (this.remoteAudioElement) {
+                    this.remoteAudioElement.srcObject = null;
+                    this.remoteAudioElement.remove();
+                    this.remoteAudioElement = null;
+                }
+                
+                if (this.remoteMicElement) {
+                    this.remoteMicElement.srcObject = null;
+                    this.remoteMicElement.remove();
+                    this.remoteMicElement = null;
                 }
                 
                 // Reset UI
