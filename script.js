@@ -922,7 +922,7 @@
             handleScreenStream(stream) {
                 this.log('📺 Routing to remote screen share');
                 this.remoteScreen.srcObject = stream;
-                this.remoteScreen.play()
+                this.safePlay(this.remoteScreen)
                     .then(() => this.log('✅ Remote screen playing'))
                     .catch(e => this.error('Error playing remote screen:', e));
                 document.getElementById('remoteScreenWrapper').classList.remove('hidden');
@@ -932,7 +932,7 @@
             handleCameraStream(stream) {
                 this.log('📹 Routing to remote video call');
                 this.remoteVideo.srcObject = stream;
-                this.remoteVideo.play()
+                this.safePlay(this.remoteVideo)
                     .then(() => this.log('✅ Remote video playing'))
                     .catch(e => this.error('Error playing remote video:', e));
                 document.getElementById('remoteVideoWrapper').classList.remove('hidden');
@@ -948,7 +948,7 @@
                     document.body.appendChild(this.remoteAudioElement);
                 }
                 this.remoteAudioElement.srcObject = stream;
-                this.remoteAudioElement.play()
+                this.safePlay(this.remoteAudioElement)
                     .then(() => this.log('✅ Remote audio playing'))
                     .catch(err => this.error('Failed to play remote audio:', err));
             }
@@ -964,7 +964,7 @@
                     document.body.appendChild(this.remoteMicElement);
                 }
                 this.remoteMicElement.srcObject = stream;
-                this.remoteMicElement.play()
+                this.safePlay(this.remoteMicElement)
                     .then(() => this.log('✅ Friend\'s microphone audio playing'))
                     .catch(err => this.error('Failed to play remote mic:', err));
             }
@@ -1610,9 +1610,10 @@
             }
             
             async startVideoStream() {
+                // Ensure any existing video stream is fully stopped first
                 if (this.videoStream) {
-                    this.log('⚠️ Video stream already active');
-                    return;
+                    this.log('⚠️ Video stream already active, stopping first...');
+                    this.stopVideoStream();
                 }
                 
                 try {
@@ -1654,7 +1655,7 @@
                     // Update local preview
                     this.localVideo.srcObject = this.videoStream; // Show camera only locally
                     this.localVideo.muted = true; // Mute local to prevent echo
-                    await this.localVideo.play().catch(e => this.error('Error playing local video:', e));
+                    await this.safePlay(this.localVideo);
                     
                     document.getElementById('localVideoWrapper').classList.remove('hidden');
                     
@@ -1675,6 +1676,8 @@
                         errorMsg = 'Camera permission denied';
                     } else if (err.name === 'NotFoundError') {
                         errorMsg = 'No camera found';
+                    } else if (err.name === 'NotReadableError') {
+                        errorMsg = 'Camera is in use by another app';
                     } else if (err.message) {
                         errorMsg = err.message;
                     }
@@ -1912,6 +1915,43 @@
                     wrapper.classList.add('pip');
                     wrapper.style.zIndex = '10000';
                     this.log(`📺 Entered PIP mode for ${wrapperId}`);
+                }
+            }
+
+            toggleFullscreen(wrapperId) {
+                const wrapper = document.getElementById(wrapperId);
+                if (!wrapper) return;
+
+                if (!document.fullscreenElement) {
+                    wrapper.requestFullscreen().catch(err => {
+                        this.error(`Error attempting to enable fullscreen: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+
+            async safePlay(element) {
+                if (!element) return;
+                
+                try {
+                    // If it's already playing, don't interrupt
+                    if (!element.paused && !element.ended && element.readyState > 2) {
+                        return;
+                    }
+                    
+                    const playPromise = element.play();
+                    if (playPromise !== undefined) {
+                        await playPromise;
+                    }
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        // Ignore AbortError as it means a new load request interrupted this one
+                        // which is expected behavior when switching streams
+                        this.log('ℹ️ Play request interrupted (expected)');
+                    } else {
+                        this.error('Error playing media:', error);
+                    }
                 }
             }
             
