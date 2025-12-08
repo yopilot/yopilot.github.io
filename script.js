@@ -554,6 +554,18 @@
                         }
                     });
                 }
+                
+                // Close button listeners
+                const closeQualityBtn = document.getElementById('closeQualitySettings');
+                const closeDiagnosticsBtn = document.getElementById('closeDiagnostics');
+                
+                if (closeQualityBtn) {
+                    closeQualityBtn.addEventListener('click', () => this.closeQualitySettings());
+                }
+                
+                if (closeDiagnosticsBtn) {
+                    closeDiagnosticsBtn.addEventListener('click', () => this.closeDiagnostics());
+                }
             }
             
             copyId() {
@@ -2178,6 +2190,16 @@
             window.app = new P2PScreenShare();
             
             // Make methods globally available for HTML onclick handlers
-            window.app.toggleMinimize = window.app.toggleMinimize.bind(window.app);
-            window.app.toggleFullscreen = window.app.toggleFullscreen.bind(window.app);
+            if (window.app.toggleMinimize) {
+                window.app.toggleMinimize = window.app.toggleMinimize.bind(window.app);
+            }
+            if (window.app.toggleFullscreen) {
+                window.app.toggleFullscreen = window.app.toggleFullscreen.bind(window.app);
+            }
+            if (window.app.closeQualitySettings) {
+                window.app.closeQualitySettings = window.app.closeQualitySettings.bind(window.app);
+            }
+            if (window.app.closeDiagnostics) {
+                window.app.closeDiagnostics = window.app.closeDiagnostics.bind(window.app);
+            }
         });

@@ -11,8 +11,8 @@
     <link rel="manifest" href="manifest.json">
     
     <!-- Icons -->
-    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="icon" type="image/svg+xml" href="icon-192.svg">
+    <link rel="apple-touch-icon" href="icon-192.svg">
     
     <!-- PeerJS CDN -->
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
@@ -104,7 +104,7 @@
         <div class="settings-panel" id="qualitySettings" style="display: none;">
             <div class="panel-header">
                 <h3>⚙️ Quality Settings</h3>
-                <button class="close-btn" onclick="app.closeQualitySettings()">×</button>
+                <button class="close-btn" id="closeQualitySettings">×</button>
             </div>
             <div class="panel-content">
                 <label>Video Quality:</label>
@@ -130,7 +130,7 @@
         <div class="diagnostics-panel" id="diagnosticsPanel" style="display: none;">
             <div class="panel-header">
                 <h3>🔍 Connection Diagnostics</h3>
-                <button class="close-btn" onclick="app.closeDiagnostics()">×</button>
+                <button class="close-btn" id="closeDiagnostics">×</button>
             </div>
             <div class="panel-content">
                 <div class="diagnostic-row">
