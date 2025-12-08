@@ -53,6 +53,39 @@
                 this.streamStatus = document.getElementById('streamStatus');
                 this.qualityIndicator = document.getElementById('qualityIndicator');
                 
+                // Production-level elements
+                this.recordBtn = document.getElementById('recordBtn');
+                this.stopRecordBtn = document.getElementById('stopRecordBtn');
+                this.shareFileBtn = document.getElementById('shareFileBtn');
+                this.qualitySettingsBtn = document.getElementById('qualitySettingsBtn');
+                this.diagnosticsBtn = document.getElementById('diagnosticsBtn');
+                this.bandwidthIndicator = document.getElementById('bandwidthIndicator');
+                
+                // Recording state
+                this.mediaRecorder = null;
+                this.recordedChunks = [];
+                this.isRecording = false;
+                
+                // File transfer state
+                this.fileTransfers = new Map();
+                this.chunkSize = 16384; // 16KB chunks for file transfer
+                
+                // Quality settings
+                this.qualitySettings = {
+                    videoQuality: '1080p',
+                    frameRate: 30,
+                    bitrate: 2500
+                };
+                
+                // Diagnostics
+                this.diagnosticsInterval = null;
+                this.connectionStats = {
+                    latency: 0,
+                    packetLoss: 0,
+                    uploadSpeed: 0,
+                    downloadSpeed: 0
+                };
+                
                 // Track which streams are active
                 this.activeStreams = {
                     screenLocal: false,
@@ -316,18 +349,27 @@
                 
                 this.peer.on('error', (err) => {
                     this.error('PeerJS error:', err);
+                    
                     if (err.type === 'peer-unavailable') {
-                        alert('Peer not found! Make sure your friend is online and the ID is correct.');
+                        this.showNotification('Peer Unavailable', 'Make sure your friend is online and the ID is correct', 'error');
                     } else if (err.type === 'network') {
-                        alert('Network error. Check your internet connection.');
+                        this.showNotification('Network Error', 'Check your internet connection', 'error');
+                        this.attemptReconnection();
+                    } else if (err.type === 'server-error') {
+                        this.showNotification('Server Error', 'PeerJS server is unavailable. Retrying...', 'error');
+                        this.attemptReconnection();
+                    } else if (err.type === 'disconnected') {
+                        this.showNotification('Disconnected', 'Connection lost. Attempting to reconnect...', 'warning');
+                        this.attemptReconnection();
                     } else {
-                        alert('Connection error: ' + err.message);
+                        this.showNotification('Connection Error', err.message || 'Unknown error occurred', 'error');
                     }
                 });
                 
                 this.peer.on('disconnected', () => {
                     this.log('⚠️ Disconnected from PeerJS server. Attempting to reconnect...');
-                    this.peer.reconnect();
+                    this.showNotification('Disconnected', 'Reconnecting to server...', 'warning');
+                    this.attemptReconnection();
                 });
             }
             
@@ -416,6 +458,9 @@
                                         this.toggleFullscreen(visibleVideos[0].id);
                                     }
                                 }
+                            } else if (e.shiftKey && e.ctrlKey) {
+                                e.preventDefault();
+                                this.initiateFileShare();
                             }
                             break;
                         case 'm':
@@ -447,8 +492,68 @@
                                 }
                             }
                             break;
+                        case 'r':
+                            if (e.ctrlKey || e.metaKey) {
+                                e.preventDefault();
+                                if (this.isRecording) {
+                                    this.stopRecording();
+                                } else {
+                                    this.startRecording();
+                                }
+                            }
+                            break;
                     }
                 });
+                
+                // Production-level event listeners
+                if (this.recordBtn) {
+                    this.recordBtn.addEventListener('click', () => this.startRecording());
+                }
+                
+                if (this.stopRecordBtn) {
+                    this.stopRecordBtn.addEventListener('click', () => this.stopRecording());
+                }
+                
+                if (this.shareFileBtn) {
+                    this.shareFileBtn.addEventListener('click', () => this.initiateFileShare());
+                }
+                
+                if (this.qualitySettingsBtn) {
+                    this.qualitySettingsBtn.addEventListener('click', () => this.showQualitySettings());
+                }
+                
+                if (this.diagnosticsBtn) {
+                    this.diagnosticsBtn.addEventListener('click', () => this.showDiagnostics());
+                }
+                
+                // Quality settings controls
+                const videoQuality = document.getElementById('videoQuality');
+                const frameRate = document.getElementById('frameRate');
+                const bitrate = document.getElementById('bitrate');
+                const bitrateValue = document.getElementById('bitrateValue');
+                
+                if (videoQuality) {
+                    videoQuality.addEventListener('change', (e) => {
+                        this.qualitySettings.videoQuality = e.target.value;
+                        this.showNotification('Quality settings updated', 'Changes will apply to next stream', 'info');
+                    });
+                }
+                
+                if (frameRate) {
+                    frameRate.addEventListener('change', (e) => {
+                        this.qualitySettings.frameRate = parseInt(e.target.value);
+                        this.showNotification('Frame rate updated', `Set to ${e.target.value} FPS`, 'info');
+                    });
+                }
+                
+                if (bitrate) {
+                    bitrate.addEventListener('input', (e) => {
+                        this.qualitySettings.bitrate = parseInt(e.target.value);
+                        if (bitrateValue) {
+                            bitrateValue.textContent = `${e.target.value} kbps`;
+                        }
+                    });
+                }
             }
             
             copyId() {
@@ -552,6 +657,8 @@
                     
                     if (data.type === 'chat') {
                         this.addChatMessage(data.message, 'received', data.timestamp);
+                    } else if (data.type?.startsWith('file-')) {
+                        this.receiveFile(data);
                     }
                 });
                 
@@ -570,6 +677,10 @@
                 this.log('🎉 Activating connection features...');
                 this.updateConnectionStatus('🟢 Connected', true);
                 
+                // Enable recording and file sharing buttons
+                if (this.recordBtn) this.recordBtn.disabled = false;
+                if (this.shareFileBtn) this.shareFileBtn.disabled = false;
+                
                 // Auto-start microphone for voice chat (non-blocking)
                 this.startMicStream().catch(err => {
                     this.error('Microphone auto-start failed:', err);
@@ -581,6 +692,8 @@
                     chatPanel.style.display = 'flex';
                     this.addSystemMessage('💬 Connected! Voice chat active. Share your screen or turn on camera.');
                 }
+                
+                this.showNotification('Connected', 'You are now connected to your peer', 'success');
             }
             
             handleIncomingConnection(conn) {
@@ -1568,6 +1681,494 @@
                         wrapper.style.zIndex = '';
                     });
                 }
+            }
+            
+            // ========== PRODUCTION-LEVEL FEATURES ==========
+            
+            // Recording functionality
+            async startRecording() {
+                try {
+                    if (!this.localStream && !this.videoStream) {
+                        this.showNotification('Cannot Record', 'Start screen share or camera first', 'warning');
+                        return;
+                    }
+                    
+                    const streamToRecord = this.localStream || this.videoStream;
+                    
+                    const options = {
+                        mimeType: 'video/webm;codecs=vp9,opus',
+                        videoBitsPerSecond: this.qualitySettings.bitrate * 1000
+                    };
+                    
+                    // Fallback to vp8 if vp9 not supported
+                    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                        options.mimeType = 'video/webm;codecs=vp8,opus';
+                    }
+                    
+                    this.mediaRecorder = new MediaRecorder(streamToRecord, options);
+                    this.recordedChunks = [];
+                    
+                    this.mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            this.recordedChunks.push(event.data);
+                        }
+                    };
+                    
+                    this.mediaRecorder.onstop = () => {
+                        const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
+                        const url = URL.createObjectURL(blob);
+                        
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `recording-${Date.now()}.webm`;
+                        a.click();
+                        
+                        URL.revokeObjectURL(url);
+                        this.showNotification('Recording Saved', 'Your recording has been downloaded', 'success');
+                    };
+                    
+                    this.mediaRecorder.start(1000); // Collect data every second
+                    this.isRecording = true;
+                    this.recordBtn.style.display = 'none';
+                    this.stopRecordBtn.style.display = 'inline-flex';
+                    this.recordBtn.classList.add('recording');
+                    
+                    this.showNotification('Recording Started', 'Your session is being recorded', 'success');
+                    this.log('🎥 Recording started');
+                    
+                } catch (error) {
+                    this.error('Recording failed:', error);
+                    this.showNotification('Recording Failed', error.message, 'error');
+                }
+            }
+            
+            stopRecording() {
+                if (this.mediaRecorder && this.isRecording) {
+                    this.mediaRecorder.stop();
+                    this.isRecording = false;
+                    this.recordBtn.style.display = 'inline-flex';
+                    this.stopRecordBtn.style.display = 'none';
+                    this.recordBtn.classList.remove('recording');
+                    this.log('🎥 Recording stopped');
+                }
+            }
+            
+            // File sharing functionality
+            async initiateFileShare() {
+                if (!this.currentConnection || !this.currentConnection.open) {
+                    this.showNotification('Not Connected', 'Connect to a peer first', 'warning');
+                    return;
+                }
+                
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        await this.sendFile(file);
+                    }
+                };
+                input.click();
+            }
+            
+            async sendFile(file) {
+                try {
+                    const fileId = Date.now().toString();
+                    const totalChunks = Math.ceil(file.size / this.chunkSize);
+                    
+                    // Show file transfer panel
+                    const panel = document.getElementById('fileTransferPanel');
+                    const list = document.getElementById('fileTransferList');
+                    panel.style.display = 'block';
+                    
+                    // Add file transfer item
+                    const item = document.createElement('div');
+                    item.className = 'file-transfer-item';
+                    item.id = `transfer-${fileId}`;
+                    item.innerHTML = `
+                        <div class="file-transfer-header">
+                            <span class="file-name">${file.name}</span>
+                            <span class="file-size">${this.formatFileSize(file.size)}</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-${fileId}" style="width: 0%"></div>
+                        </div>
+                        <div class="file-status">
+                            <span class="file-status-text">Sending...</span>
+                            <span class="file-status-percentage" id="percentage-${fileId}">0%</span>
+                        </div>
+                    `;
+                    list.appendChild(item);
+                    
+                    // Send file metadata
+                    this.currentConnection.send({
+                        type: 'file-start',
+                        fileId,
+                        name: file.name,
+                        size: file.size,
+                        totalChunks
+                    });
+                    
+                    // Send file in chunks
+                    const reader = new FileReader();
+                    let offset = 0;
+                    let chunkIndex = 0;
+                    
+                    const readNextChunk = () => {
+                        const slice = file.slice(offset, offset + this.chunkSize);
+                        reader.readAsArrayBuffer(slice);
+                    };
+                    
+                    reader.onload = (e) => {
+                        this.currentConnection.send({
+                            type: 'file-chunk',
+                            fileId,
+                            chunkIndex,
+                            data: Array.from(new Uint8Array(e.target.result))
+                        });
+                        
+                        offset += this.chunkSize;
+                        chunkIndex++;
+                        
+                        const progress = Math.min(100, (chunkIndex / totalChunks) * 100);
+                        document.getElementById(`progress-${fileId}`).style.width = `${progress}%`;
+                        document.getElementById(`percentage-${fileId}`).textContent = `${Math.round(progress)}%`;
+                        
+                        if (offset < file.size) {
+                            readNextChunk();
+                        } else {
+                            // File transfer complete
+                            this.currentConnection.send({
+                                type: 'file-end',
+                                fileId
+                            });
+                            
+                            document.querySelector(`#transfer-${fileId} .file-status-text`).textContent = 'Sent!';
+                            this.showNotification('File Sent', `${file.name} sent successfully`, 'success');
+                            
+                            setTimeout(() => {
+                                item.remove();
+                                if (list.children.length === 0) {
+                                    panel.style.display = 'none';
+                                }
+                            }, 3000);
+                        }
+                    };
+                    
+                    readNextChunk();
+                    
+                } catch (error) {
+                    this.error('File transfer failed:', error);
+                    this.showNotification('Transfer Failed', error.message, 'error');
+                }
+            }
+            
+            receiveFile(data) {
+                if (data.type === 'file-start') {
+                    // Initialize file reception
+                    this.fileTransfers.set(data.fileId, {
+                        name: data.name,
+                        size: data.size,
+                        totalChunks: data.totalChunks,
+                        chunks: [],
+                        receivedChunks: 0
+                    });
+                    
+                    // Show file transfer panel
+                    const panel = document.getElementById('fileTransferPanel');
+                    const list = document.getElementById('fileTransferList');
+                    panel.style.display = 'block';
+                    
+                    const item = document.createElement('div');
+                    item.className = 'file-transfer-item';
+                    item.id = `transfer-${data.fileId}`;
+                    item.innerHTML = `
+                        <div class="file-transfer-header">
+                            <span class="file-name">${data.name}</span>
+                            <span class="file-size">${this.formatFileSize(data.size)}</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-${data.fileId}" style="width: 0%"></div>
+                        </div>
+                        <div class="file-status">
+                            <span class="file-status-text">Receiving...</span>
+                            <span class="file-status-percentage" id="percentage-${data.fileId}">0%</span>
+                        </div>
+                    `;
+                    list.appendChild(item);
+                    
+                } else if (data.type === 'file-chunk') {
+                    const transfer = this.fileTransfers.get(data.fileId);
+                    if (transfer) {
+                        transfer.chunks[data.chunkIndex] = new Uint8Array(data.data);
+                        transfer.receivedChunks++;
+                        
+                        const progress = (transfer.receivedChunks / transfer.totalChunks) * 100;
+                        document.getElementById(`progress-${data.fileId}`).style.width = `${progress}%`;
+                        document.getElementById(`percentage-${data.fileId}`).textContent = `${Math.round(progress)}%`;
+                    }
+                    
+                } else if (data.type === 'file-end') {
+                    const transfer = this.fileTransfers.get(data.fileId);
+                    if (transfer) {
+                        // Combine all chunks
+                        const blob = new Blob(transfer.chunks);
+                        const url = URL.createObjectURL(blob);
+                        
+                        // Download file
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = transfer.name;
+                        a.click();
+                        
+                        URL.revokeObjectURL(url);
+                        
+                        document.querySelector(`#transfer-${data.fileId} .file-status-text`).textContent = 'Received!';
+                        this.showNotification('File Received', `${transfer.name} downloaded`, 'success');
+                        
+                        setTimeout(() => {
+                            document.getElementById(`transfer-${data.fileId}`).remove();
+                            const panel = document.getElementById('fileTransferPanel');
+                            const list = document.getElementById('fileTransferList');
+                            if (list.children.length === 0) {
+                                panel.style.display = 'none';
+                            }
+                        }, 3000);
+                        
+                        this.fileTransfers.delete(data.fileId);
+                    }
+                }
+            }
+            
+            formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+            }
+            
+            // Notification system
+            showNotification(title, message, type = 'info') {
+                const container = document.getElementById('notificationContainer');
+                if (!container) return;
+                
+                const icons = {
+                    success: '✅',
+                    error: '❌',
+                    warning: '⚠️',
+                    info: 'ℹ️'
+                };
+                
+                const notification = document.createElement('div');
+                notification.className = `notification ${type}`;
+                notification.innerHTML = `
+                    <span class="notification-icon">${icons[type] || icons.info}</span>
+                    <div class="notification-content">
+                        <div class="notification-title">${title}</div>
+                        <div class="notification-message">${message}</div>
+                    </div>
+                `;
+                
+                container.appendChild(notification);
+                
+                // Auto-remove after 5 seconds
+                setTimeout(() => {
+                    notification.style.opacity = '0';
+                    notification.style.transform = 'translateX(100%)';
+                    setTimeout(() => notification.remove(), 300);
+                }, 5000);
+            }
+            
+            // Quality settings panel
+            showQualitySettings() {
+                const panel = document.getElementById('qualitySettings');
+                if (panel) {
+                    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                }
+            }
+            
+            closeQualitySettings() {
+                const panel = document.getElementById('qualitySettings');
+                if (panel) {
+                    panel.style.display = 'none';
+                }
+            }
+            
+            // Diagnostics panel
+            showDiagnostics() {
+                const panel = document.getElementById('diagnosticsPanel');
+                if (panel) {
+                    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                    if (panel.style.display !== 'none') {
+                        this.startDiagnostics();
+                    } else {
+                        this.stopDiagnostics();
+                    }
+                }
+            }
+            
+            closeDiagnostics() {
+                const panel = document.getElementById('diagnosticsPanel');
+                if (panel) {
+                    panel.style.display = 'none';
+                    this.stopDiagnostics();
+                }
+            }
+            
+            async startDiagnostics() {
+                if (this.diagnosticsInterval) return;
+                
+                this.diagnosticsInterval = setInterval(async () => {
+                    await this.updateDiagnostics();
+                }, 1000);
+            }
+            
+            stopDiagnostics() {
+                if (this.diagnosticsInterval) {
+                    clearInterval(this.diagnosticsInterval);
+                    this.diagnosticsInterval = null;
+                }
+            }
+            
+            async updateDiagnostics() {
+                try {
+                    if (!this.currentCall?.peerConnection) {
+                        document.getElementById('diagConnectionType').textContent = 'No active call';
+                        return;
+                    }
+                    
+                    const stats = await this.currentCall.peerConnection.getStats();
+                    let connectionType = 'unknown';
+                    let latency = 0;
+                    let packetLoss = 0;
+                    let uploadSpeed = 0;
+                    let downloadSpeed = 0;
+                    
+                    stats.forEach(report => {
+                        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                            connectionType = report.currentRoundTripTime ? 'Direct (P2P)' : 'Relayed (TURN)';
+                            latency = report.currentRoundTripTime ? (report.currentRoundTripTime * 1000).toFixed(0) : 0;
+                        }
+                        
+                        if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                            packetLoss = report.packetsLost || 0;
+                            downloadSpeed = report.bytesReceived ? ((report.bytesReceived * 8) / 1000000).toFixed(2) : 0;
+                        }
+                        
+                        if (report.type === 'outbound-rtp' && report.kind === 'video') {
+                            uploadSpeed = report.bytesSent ? ((report.bytesSent * 8) / 1000000).toFixed(2) : 0;
+                        }
+                    });
+                    
+                    document.getElementById('diagConnectionType').textContent = connectionType;
+                    document.getElementById('diagLatency').textContent = `${latency} ms`;
+                    document.getElementById('diagPacketLoss').textContent = `${packetLoss} packets`;
+                    document.getElementById('diagUploadSpeed').textContent = `${uploadSpeed} Mbps`;
+                    document.getElementById('diagDownloadSpeed').textContent = `${downloadSpeed} Mbps`;
+                    
+                    // Update bandwidth indicator
+                    const totalSpeed = parseFloat(uploadSpeed) + parseFloat(downloadSpeed);
+                    const bandwidthIndicator = this.bandwidthIndicator;
+                    
+                    if (totalSpeed > 5) {
+                        bandwidthIndicator.textContent = '📶 Excellent';
+                        bandwidthIndicator.className = 'status good';
+                    } else if (totalSpeed > 2) {
+                        bandwidthIndicator.textContent = '📶 Good';
+                        bandwidthIndicator.className = 'status medium';
+                    } else {
+                        bandwidthIndicator.textContent = '📶 Poor';
+                        bandwidthIndicator.className = 'status poor';
+                    }
+                    
+                } catch (error) {
+                    this.error('Diagnostics error:', error);
+                }
+            }
+            
+            // Error recovery and reconnection
+            attemptReconnection() {
+                if (this.reconnectionAttempts >= 5) {
+                    this.showNotification('Reconnection Failed', 'Please refresh the page', 'error');
+                    return;
+                }
+                
+                if (!this.reconnectionAttempts) {
+                    this.reconnectionAttempts = 0;
+                }
+                
+                this.reconnectionAttempts++;
+                
+                setTimeout(() => {
+                    if (this.peer && !this.peer.destroyed) {
+                        this.peer.reconnect();
+                        this.log(`Reconnection attempt ${this.reconnectionAttempts}/5`);
+                    } else {
+                        // Reinitialize peer if destroyed
+                        this.initPeerJS();
+                    }
+                }, 2000 * this.reconnectionAttempts);
+            }
+            
+            // Cleanup method enhancement
+            cleanup() {
+                this.log('🧹 Cleaning up resources...');
+                
+                // Stop recording if active
+                if (this.isRecording) {
+                    this.stopRecording();
+                }
+                
+                // Stop diagnostics
+                this.stopDiagnostics();
+                
+                // Clear file transfers
+                this.fileTransfers.clear();
+                
+                // Stop all streams
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => track.stop());
+                    this.localStream = null;
+                }
+                
+                if (this.videoStream) {
+                    this.videoStream.getTracks().forEach(track => track.stop());
+                    this.videoStream = null;
+                }
+                
+                if (this.standaloneMicStream) {
+                    this.standaloneMicStream.getTracks().forEach(track => track.stop());
+                    this.standaloneMicStream = null;
+                }
+                
+                // Close connections
+                if (this.currentCall) {
+                    this.currentCall.close();
+                    this.currentCall = null;
+                }
+                
+                if (this.currentConnection) {
+                    this.currentConnection.close();
+                    this.currentConnection = null;
+                }
+                
+                // Reset UI
+                this.updateConnectionStatus('⚪ Disconnected', false);
+                this.updateStreamStatus('⚪ Not Sharing', false);
+                
+                // Hide video elements
+                document.querySelectorAll('.video-wrapper').forEach(wrapper => {
+                    wrapper.classList.add('hidden');
+                });
+                
+                // Close audio context
+                if (this.audioContext) {
+                    this.audioContext.close();
+                    this.audioContext = null;
+                }
+                
+                this.log('✅ Cleanup complete');
             }
         }
 

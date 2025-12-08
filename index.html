@@ -3,7 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>P2P Screen Share - PeerJS</title>
+    <title>P2P Screen Share Pro - Production</title>
+    <meta name="description" content="Production-grade peer-to-peer screen sharing with recording, file transfer, and real-time diagnostics">
+    <meta name="theme-color" content="#38bdf8">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
     <!-- PeerJS CDN -->
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     
@@ -52,6 +62,18 @@
                 <span class="icon">⏹️</span>
                 <span>Stop Sharing</span>
             </button>
+            <button id="recordBtn" disabled>
+                <span class="icon">⏺️</span>
+                <span>Record</span>
+            </button>
+            <button id="stopRecordBtn" disabled style="display: none;">
+                <span class="icon">⏹️</span>
+                <span>Stop Recording</span>
+            </button>
+            <button id="shareFileBtn" disabled>
+                <span class="icon">📎</span>
+                <span>Share File</span>
+            </button>
             <label class="toggle" style="margin-left: 20px;">
                 <input type="checkbox" id="videoToggle">
                 <span class="slider"></span>
@@ -73,6 +95,76 @@
             <span id="connectionStatus" class="status disconnected">⚪ Not Connected</span>
             <span id="streamStatus" class="status">⚪ Not Sharing</span>
             <span id="qualityIndicator" class="status quality">📊 Quality: --</span>
+            <span id="bandwidthIndicator" class="status">📶 Bandwidth: --</span>
+            <button id="qualitySettingsBtn" class="icon-btn" title="Quality Settings">⚙️</button>
+            <button id="diagnosticsBtn" class="icon-btn" title="Diagnostics">🔍</button>
+        </div>
+
+        <!-- Quality Settings Panel -->
+        <div class="settings-panel" id="qualitySettings" style="display: none;">
+            <div class="panel-header">
+                <h3>⚙️ Quality Settings</h3>
+                <button class="close-btn" onclick="app.closeQualitySettings()">×</button>
+            </div>
+            <div class="panel-content">
+                <label>Video Quality:</label>
+                <select id="videoQuality">
+                    <option value="4k">4K (3840x2160)</option>
+                    <option value="1080p" selected>1080p (1920x1080)</option>
+                    <option value="720p">720p (1280x720)</option>
+                    <option value="480p">480p (854x480)</option>
+                </select>
+                <label>Frame Rate:</label>
+                <select id="frameRate">
+                    <option value="60">60 FPS</option>
+                    <option value="30" selected>30 FPS</option>
+                    <option value="15">15 FPS</option>
+                </select>
+                <label>Bitrate (kbps):</label>
+                <input type="range" id="bitrate" min="500" max="10000" step="500" value="2500">
+                <span id="bitrateValue">2500 kbps</span>
+            </div>
+        </div>
+
+        <!-- Diagnostics Panel -->
+        <div class="diagnostics-panel" id="diagnosticsPanel" style="display: none;">
+            <div class="panel-header">
+                <h3>🔍 Connection Diagnostics</h3>
+                <button class="close-btn" onclick="app.closeDiagnostics()">×</button>
+            </div>
+            <div class="panel-content">
+                <div class="diagnostic-row">
+                    <span>Connection Type:</span>
+                    <span id="diagConnectionType">--</span>
+                </div>
+                <div class="diagnostic-row">
+                    <span>Latency:</span>
+                    <span id="diagLatency">--</span>
+                </div>
+                <div class="diagnostic-row">
+                    <span>Packet Loss:</span>
+                    <span id="diagPacketLoss">--</span>
+                </div>
+                <div class="diagnostic-row">
+                    <span>Upload Speed:</span>
+                    <span id="diagUploadSpeed">--</span>
+                </div>
+                <div class="diagnostic-row">
+                    <span>Download Speed:</span>
+                    <span id="diagDownloadSpeed">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Container -->
+        <div id="notificationContainer" class="notification-container"></div>
+
+        <!-- File Transfer Progress -->
+        <div id="fileTransferPanel" class="file-transfer-panel" style="display: none;">
+            <div class="panel-header">
+                <h3>📁 File Transfer</h3>
+            </div>
+            <div id="fileTransferList" class="file-transfer-list"></div>
         </div>
 
         <!-- P2P Chat Panel -->
@@ -167,11 +259,49 @@
             <p class="note">✨ PeerJS handles all the complex signaling - 99% connection success rate!</p>
             <p class="shortcuts">
                 <strong>Keyboard Shortcuts:</strong><br>
-                <kbd>Ctrl+F</kbd> Toggle fullscreen • <kbd>Ctrl+M</kbd> Toggle microphone • <kbd>Ctrl+S</kbd> Toggle screen share • <kbd>Ctrl+V</kbd> Toggle camera
+                <kbd>Ctrl+F</kbd> Toggle fullscreen • <kbd>Ctrl+M</kbd> Toggle microphone • <kbd>Ctrl+S</kbd> Toggle screen share • <kbd>Ctrl+V</kbd> Toggle camera • <kbd>Ctrl+R</kbd> Record • <kbd>Ctrl+Shift+F</kbd> Share file
             </p>
+            <p class="note">🔒 End-to-end encrypted • 🚀 No data stored on servers • 🌍 Works worldwide</p>
         </div>
     </div>
 
     <script src="script.js"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js')
+                    .then(registration => {
+                        console.log('✅ Service Worker registered:', registration.scope);
+                        
+                        // Check for updates
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // New version available
+                                    if (confirm('New version available! Reload to update?')) {
+                                        newWorker.postMessage({ type: 'SKIP_WAITING' });
+                                        window.location.reload();
+                                    }
+                                }
+                            });
+                        });
+                    })
+                    .catch(error => {
+                        console.error('❌ Service Worker registration failed:', error);
+                    });
+            });
+            
+            // Handle service worker updates
+            let refreshing;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (refreshing) return;
+                window.location.reload();
+                refreshing = true;
+            });
+        }
+    </script>
 </body>
 </html>
