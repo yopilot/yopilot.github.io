@@ -150,8 +150,16 @@ function initPeer() {
 async function getLocalStream() {
     try {
         myStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true
+            video: {
+                width: { ideal: 1920, min: 1280 },
+                height: { ideal: 1080, min: 720 },
+                frameRate: { ideal: 30, max: 60 }
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
         });
         localVideo.srcObject = myStream;
         return true;
@@ -331,8 +339,17 @@ shareScreenBtn.addEventListener('click', async () => {
         // Start sharing
         try {
             myScreenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: true,
-                audio: true // Capture system audio
+                video: {
+                    cursor: "always",
+                    width: { ideal: 1920, max: 3840 },
+                    height: { ideal: 1080, max: 2160 },
+                    frameRate: { ideal: 60 }
+                },
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: false
+                }
             });
 
             localScreen.srcObject = myScreenStream;
