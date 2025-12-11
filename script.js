@@ -159,23 +159,23 @@ function initPeer() {
                     connectionState: call.peerConnection.connectionState
                 });
                 
-                call.peerConnection.onsignalingstatechange = () => {
+                call.peerConnection.addEventListener('signalingstatechange', () => {
                     console.log('📡 Answer Signaling State:', call.peerConnection.signalingState);
-                };
+                });
                 
-                call.peerConnection.onconnectionstatechange = () => {
+                call.peerConnection.addEventListener('connectionstatechange', () => {
                     console.log('🔌 Answer Connection State:', call.peerConnection.connectionState);
-                };
+                });
                 
-                call.peerConnection.oniceconnectionstatechange = () => {
+                call.peerConnection.addEventListener('iceconnectionstatechange', () => {
                     console.log('Answer ICE State:', call.peerConnection.iceConnectionState);
-                };
+                });
                 
-                call.peerConnection.onicecandidate = (event) => {
+                call.peerConnection.addEventListener('icecandidate', (event) => {
                     if (event.candidate) {
                         console.log('Answer ICE Candidate:', event.candidate.type, event.candidate.address || '');
                     }
-                };
+                });
                 
                 // Check transceivers
                 const transceivers = call.peerConnection.getTransceivers();
@@ -232,7 +232,7 @@ async function getLocalStream() {
 
     try {
         console.log('🎥 Requesting getUserMedia...');
-        myStream = await navigator.mediaDevices.getUserMedia({
+        const rawStream = await navigator.mediaDevices.getUserMedia({
             video: {
                 width: { ideal: 1920 },
                 height: { ideal: 1080 },
@@ -244,8 +244,20 @@ async function getLocalStream() {
                 autoGainControl: true
             }
         });
+
+        // Audio Context Hack to keep audio "hot"
+        // This prevents the browser from muting the track when silence is detected
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(rawStream);
+        const destination = audioContext.createMediaStreamDestination();
+        source.connect(destination);
         
-        console.log('✅ Local stream acquired:', {
+        // Combine processed audio with original video
+        const audioTrack = destination.stream.getAudioTracks()[0];
+        const videoTrack = rawStream.getVideoTracks()[0];
+        myStream = new MediaStream([audioTrack, videoTrack]);
+        
+        console.log('✅ Local stream acquired (with AudioContext hack):', {
             id: myStream.id,
             active: myStream.active,
             tracks: myStream.getTracks().map(t => ({
@@ -462,16 +474,8 @@ function handleStream(call, videoElement, container) {
         container.classList.remove('placeholder');
         
         // Playback logic
-        const playVideo = async () => {
-            console.log(`🎬 playVideo() called for ${videoElement.id}`);
-            console.log('Video element state before play:', {
-                paused: videoElement.paused,
-                ended: videoElement.ended,
-                readyState: videoElement.readyState,
-                networkState: videoElement.networkState,
-                srcObject: videoElement.srcObject ? 'present' : 'null',
-                tracks: videoElement.srcObject ? videoElement.srcObject.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}:muted=${t.muted}`) : 'none'
-            });
+        const safePlay = async () => {
+            console.log(`🎬 safePlay() called for ${videoElement.id}`);
             
             try {
                 // Always start muted to satisfy Autoplay policy immediately
@@ -479,7 +483,10 @@ function handleStream(call, videoElement, container) {
                 videoElement.muted = true;
                 
                 console.log(`▶️ Calling play() on ${videoElement.id}...`);
-                await videoElement.play();
+                const playPromise = videoElement.play();
+                if (playPromise !== undefined) {
+                    await playPromise;
+                }
                 
                 console.log(`✅ Video playing (muted): ${videoElement.id}`, {
                     paused: videoElement.paused,
@@ -516,12 +523,12 @@ function handleStream(call, videoElement, container) {
                 
                 if (err.name === 'AbortError') {
                     console.log('⏳ Retrying play in 500ms due to AbortError...');
-                    setTimeout(playVideo, 500);
+                    setTimeout(safePlay, 500);
                 } else {
                     showNotification('Click to start video', 'error');
                     container.onclick = () => {
                         console.log('🖱️ User clicked to retry play');
-                        playVideo();
+                        safePlay();
                         container.onclick = null;
                     };
                 }
@@ -534,7 +541,7 @@ function handleStream(call, videoElement, container) {
         // CRITICAL FIX: Try playing IMMEDIATELY to prevent track from muting
         // The track mutes if the video element doesn't start consuming the stream fast enough
         console.log('🚀 Attempting IMMEDIATE play to prevent track timeout...');
-        playVideo();
+        safePlay();
         
         // Still set up the metadata handler as backup
         if (videoElement.readyState < 1) {
@@ -545,10 +552,10 @@ function handleStream(call, videoElement, container) {
                     videoHeight: videoElement.videoHeight,
                     duration: videoElement.duration
                 });
-                // Don't call playVideo again if already playing
+                // Don't call safePlay again if already playing
                 if (videoElement.paused) {
                     console.log('📺 Video still paused after metadata load, retrying play...');
-                    playVideo();
+                    safePlay();
                 }
             };
         }
@@ -888,13 +895,13 @@ connectBtn.addEventListener('click', () => {
         })));
         
         // Log ICE candidates for debugging
-        call.peerConnection.onicecandidate = (event) => {
+        call.peerConnection.addEventListener('icecandidate', (event) => {
             if (event.candidate) {
                 console.log('ICE Candidate:', event.candidate.type, event.candidate.address);
             }
-        };
+        });
 
-        call.peerConnection.oniceconnectionstatechange = () => {
+        call.peerConnection.addEventListener('iceconnectionstatechange', () => {
             const state = call.peerConnection.iceConnectionState;
             console.log('🧊 ICE Connection State:', state);
             
@@ -944,11 +951,11 @@ connectBtn.addEventListener('click', () => {
                 connectBtn.disabled = false;
                 connectBtn.innerText = 'Connect';
             }
-        };
+        });
 
-        call.peerConnection.onicegatheringstatechange = () => {
+        call.peerConnection.addEventListener('icegatheringstatechange', () => {
             console.log('🧊 ICE Gathering State:', call.peerConnection.iceGatheringState);
-        };
+        });
     }
 });
 
