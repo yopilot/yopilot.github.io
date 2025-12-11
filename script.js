@@ -209,6 +209,13 @@ async function getLocalStream() {
 function handleStream(call, videoElement, container) {
     console.log('Setting up stream handler for call:', call.peer);
     
+    // Prevent duplicate handling for the same call instance
+    if (call.handled) {
+        console.log('Call already handled:', call.peer);
+        return;
+    }
+    call.handled = true;
+    
     let streamReceived = false;  // Prevent duplicate handling
     
     const callTimeout = setTimeout(() => {
@@ -237,17 +244,45 @@ function handleStream(call, videoElement, container) {
         // Wait for video to be ready, then play
         videoElement.onloadedmetadata = () => {
             console.log('Video metadata loaded for:', videoElement.id);
-            videoElement.play().then(() => {
-                console.log('Video playing:', videoElement.id);
-            }).catch(err => {
-                console.log('Play failed:', err.name);
-                // Add click to play fallback
-                showNotification('Click the video to start playback', 'info');
-                container.onclick = () => {
-                    videoElement.play();
-                    container.onclick = null;
-                };
-            });
+            
+            const playVideo = async () => {
+                try {
+                    // Try playing with audio first
+                    await videoElement.play();
+                    console.log('Video playing:', videoElement.id);
+                    // Ensure audio is enabled
+                    videoElement.muted = false;
+                } catch (err) {
+                    console.warn('Play failed:', err.name, err.message);
+                    
+                    if (err.name === 'NotAllowedError') {
+                        // Autoplay blocked. Mute and try again.
+                        console.log('Autoplay blocked. Muting and playing.');
+                        videoElement.muted = true;
+                        try {
+                            await videoElement.play();
+                            console.log('Playing muted. Showing unmute button.');
+                            showNotification('Video playing muted. Click to unmute.', 'info');
+                            
+                            // Add a one-time click handler to unmute
+                            const unmuteHandler = () => {
+                                videoElement.muted = false;
+                                container.removeEventListener('click', unmuteHandler);
+                            };
+                            container.addEventListener('click', unmuteHandler);
+                        } catch (mutedErr) {
+                            console.error('Muted play also failed', mutedErr);
+                            showNotification('Click to start video', 'error');
+                        }
+                    } else if (err.name === 'AbortError') {
+                        // Interrupted. Retry once.
+                        console.log('Play interrupted, retrying...');
+                        setTimeout(playVideo, 500);
+                    }
+                }
+            };
+            
+            playVideo();
         };
         
         // Monitor track status
