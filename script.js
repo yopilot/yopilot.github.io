@@ -80,28 +80,25 @@ function initPeer() {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                // Free public TURN servers
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
                 {
-                    urls: 'turn:freestun.net:3479',
-                    username: 'free',
-                    credential: 'free'
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
                 },
                 {
-                    urls: 'turn:freeturn.net:3478',
-                    username: 'free',
-                    credential: 'free'
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
                 },
                 {
-                    urls: 'turn:numb.viagenie.ca:3478',
-                    username: 'webrtc@live.com',
-                    credential: 'muazkh'
+                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
                 }
-            ],
-            sdpSemantics: 'unified-plan',
-            iceTransportPolicy: 'all',  // Try both direct and relay
-            iceCandidatePoolSize: 10,
-            bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
+            ]
         }
     });
 
