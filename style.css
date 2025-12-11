@@ -312,10 +312,13 @@ button {
 
 .video-container.placeholder video {
     opacity: 0;
+    pointer-events: none; /* Prevent clicking hidden video */
 }
 
 .video-container:not(.placeholder) video {
     opacity: 1;
+    display: block; /* Ensure it's not hidden by any other rule */
+    background-color: #000; /* Black background for video */
 }
 
 /* Fullscreen & PIP Logic */

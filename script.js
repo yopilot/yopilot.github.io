@@ -181,6 +181,12 @@ function initPeer() {
 
 // Media Handling
 async function getLocalStream() {
+    // Check for insecure origin
+    if (location.protocol === 'http:' && location.hostname !== 'localhost' && !location.hostname.startsWith('127.0.0.')) {
+        console.warn('⚠️ Application is running on HTTP. Camera access may be blocked.');
+        showNotification('Warning: Insecure connection (HTTP). Camera may fail.', 'error');
+    }
+
     try {
         myStream = await navigator.mediaDevices.getUserMedia({
             video: {
@@ -194,6 +200,17 @@ async function getLocalStream() {
                 autoGainControl: true
             }
         });
+        
+        // Monitor local tracks (Sender side debugging)
+        myStream.getTracks().forEach(track => {
+            track.onmute = () => {
+                console.warn('⚠️ MY local track muted (Sender side):', track.kind);
+                showNotification(`Your ${track.kind} stopped sending data`, 'error');
+            };
+            track.onunmute = () => console.log('✅ MY local track unmuted (Sender side):', track.kind);
+            track.onended = () => console.log('MY local track ended:', track.kind);
+        });
+
         localVideo.srcObject = myStream;
         return true;
     } catch (err) {
