@@ -69,7 +69,6 @@ function updateThemeIcon(theme) {
 
 // Initialize PeerJS
 function initPeer() {
-    console.log('Initializing PeerJS...');
     peer = new Peer({
         debug: 2,
         host: '0.peerjs.com',
@@ -108,28 +107,24 @@ function initPeer() {
     });
 
     peer.on('open', (id) => {
-        console.log('My Peer ID is:', id);
+        console.log('🆔 My Peer ID is:', id);
         myPeerIdDisplay.innerText = id;
         showNotification('Ready to connect', 'success');
     });
 
     peer.on('connection', (conn) => {
-        console.log('Incoming connection from:', conn.peer);
-        
         // Close existing connection if any
         if (currentCall && currentCall.peer === conn.peer) {
-            console.log('Closing existing call connection');
             currentCall.close();
         }
 
         // Wait a moment for connection to initialize (helps with reliability)
         setTimeout(() => {
             conn.on('open', () => {
-                console.log('Connection established with:', conn.peer);
                 showNotification('Connected!', 'success');
             });
             conn.on('error', (err) => {
-                console.error('Connection error:', err);
+                console.error('❌ Connection error:', err);
             });
         }, 100);
     });
@@ -155,38 +150,62 @@ function initPeer() {
             
             // Monitor the answer's ICE state too
             if (call.peerConnection) {
+                console.log('🔗 Answer WebRTC states:', {
+                    signalingState: call.peerConnection.signalingState,
+                    iceConnectionState: call.peerConnection.iceConnectionState,
+                    connectionState: call.peerConnection.connectionState
+                });
+                
+                call.peerConnection.onsignalingstatechange = () => {
+                    console.log('📡 Answer Signaling State:', call.peerConnection.signalingState);
+                };
+                
+                call.peerConnection.onconnectionstatechange = () => {
+                    console.log('🔌 Answer Connection State:', call.peerConnection.connectionState);
+                };
+                
                 call.peerConnection.oniceconnectionstatechange = () => {
                     console.log('Answer ICE State:', call.peerConnection.iceConnectionState);
                 };
+                
                 call.peerConnection.onicecandidate = (event) => {
                     if (event.candidate) {
                         console.log('Answer ICE Candidate:', event.candidate.type, event.candidate.address || '');
                     }
                 };
+                
+                // Check transceivers
+                const transceivers = call.peerConnection.getTransceivers();
+                console.log('📼 Answer Transceivers:', transceivers.map(t => ({
+                    mid: t.mid,
+                    direction: t.direction,
+                    currentDirection: t.currentDirection,
+                    kind: t.sender?.track?.kind
+                })));
             }
             
             showNotification('Call connected!', 'success');
         } else if (callType === 'screen') {
-            console.log('Answering screen share call...');
-            call.answer(); // Answer screen share calls (usually one-way)
+            console.log('📺 Answering screen share call from:', call.peer);
+            call.answer();
             screenCall = call;
             handleStream(call, remoteScreen, containerRemoteScreen);
         }
     });
 
     peer.on('error', (err) => {
-        console.error('PeerJS Error:', err);
+        console.error('❌ PeerJS Error:', err);
         showNotification(`Error: ${err.type}`, 'error');
     });
 
     peer.on('disconnected', () => {
-        console.log('Peer disconnected from server, attempting reconnect...');
+        console.log('⚠️ Peer disconnected from server, attempting reconnect...');
         showNotification('Reconnecting...', 'info');
         peer.reconnect();
     });
 
     peer.on('close', () => {
-        console.log('Peer connection closed');
+        console.log('❌ Peer connection closed');
     });
 }
 
@@ -250,18 +269,16 @@ async function getLocalStream() {
         
         return true;
     } catch (err) {
-        console.error('Failed to get local stream', err);
+        console.error('❌ Failed to get local stream:', err);
         showNotification('Could not access camera/microphone', 'error');
         return false;
     }
 }
 
 function handleStream(call, videoElement, container) {
-    console.log('Setting up stream handler for call:', call.peer);
-    
     // Prevent duplicate handling for the same call instance
     if (call.handled) {
-        console.log('Call already handled:', call.peer);
+        console.log('⚠️ Call already handled:', call.peer);
         return;
     }
     call.handled = true;
@@ -270,7 +287,7 @@ function handleStream(call, videoElement, container) {
     
     const callTimeout = setTimeout(() => {
         if (container.classList.contains('placeholder')) {
-            console.warn('Stream timeout for:', call.peer);
+            console.warn('⏰ Stream timeout for:', call.peer);
             showNotification('Connection taking longer than expected...', 'error');
         }
     }, 15000);
@@ -434,7 +451,7 @@ function handleStream(call, videoElement, container) {
                 showNotification(`Remote ${track.kind} ended`, 'error');
             };
             
-            track.onmute = () => {
+            track.onmute = async () => {
                 console.warn(`🔇 Remote track MUTED: ${track.kind}`, {
                     id: track.id.substring(0,8),
                     enabled: track.enabled,
@@ -452,6 +469,35 @@ function handleStream(call, videoElement, container) {
                     videoHeight: videoElement.videoHeight,
                     currentTime: videoElement.currentTime
                 });
+                
+                // Check WebRTC stats immediately when mute happens
+                if (call.peerConnection) {
+                    try {
+                        const stats = await call.peerConnection.getStats();
+                        let inboundStats = null;
+                        
+                        stats.forEach(report => {
+                            if (report.type === 'inbound-rtp' && report.kind === track.kind) {
+                                inboundStats = report;
+                            }
+                        });
+                        
+                        console.log(`📊 WebRTC stats when ${track.kind} muted:`, inboundStats ? {
+                            bytesReceived: inboundStats.bytesReceived,
+                            packetsReceived: inboundStats.packetsReceived,
+                            packetsLost: inboundStats.packetsLost,
+                            framesReceived: inboundStats.framesReceived,
+                            framesDecoded: inboundStats.framesDecoded
+                        } : 'No stats available');
+                        
+                        // Check if we're receiving ANY data
+                        if (inboundStats && inboundStats.bytesReceived === 0) {
+                            console.error('❌ ZERO bytes received for', track.kind, '- connection issue!');
+                        }
+                    } catch (err) {
+                        console.error('Failed to get stats on mute:', err);
+                    }
+                }
             };
             
             track.onunmute = () => {
@@ -464,11 +510,66 @@ function handleStream(call, videoElement, container) {
             };
         });
         
+        // WebRTC Stats Monitoring - Check actual data flow
+        const statsMonitor = setInterval(async () => {
+            if (!call.peerConnection) {
+                clearInterval(statsMonitor);
+                return;
+            }
+            
+            try {
+                const stats = await call.peerConnection.getStats();
+                let videoInbound = null;
+                let audioInbound = null;
+                
+                stats.forEach(report => {
+                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                        videoInbound = report;
+                    }
+                    if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+                        audioInbound = report;
+                    }
+                });
+                
+                console.log('📡 WebRTC Stats:', {
+                    video: videoInbound ? {
+                        bytesReceived: videoInbound.bytesReceived,
+                        packetsReceived: videoInbound.packetsReceived,
+                        packetsLost: videoInbound.packetsLost,
+                        framesDecoded: videoInbound.framesDecoded,
+                        framesReceived: videoInbound.framesReceived,
+                        framesDropped: videoInbound.framesDropped,
+                        codecId: videoInbound.codecId
+                    } : 'No video stats',
+                    audio: audioInbound ? {
+                        bytesReceived: audioInbound.bytesReceived,
+                        packetsReceived: audioInbound.packetsReceived
+                    } : 'No audio stats'
+                });
+                
+                // Get codec info
+                if (videoInbound && videoInbound.codecId) {
+                    const codec = stats.get(videoInbound.codecId);
+                    if (codec) {
+                        console.log('🎬 Video Codec:', {
+                            mimeType: codec.mimeType,
+                            clockRate: codec.clockRate,
+                            payloadType: codec.payloadType
+                        });
+                    }
+                }
+                
+            } catch (err) {
+                console.error('Failed to get stats:', err);
+            }
+        }, 3000);
+        
         // Periodic state monitoring
         const stateMonitor = setInterval(() => {
             if (!videoElement.srcObject) {
                 console.log('🛑 Stopping state monitor - srcObject removed');
                 clearInterval(stateMonitor);
+                clearInterval(statsMonitor);
                 return;
             }
             
@@ -493,17 +594,13 @@ function handleStream(call, videoElement, container) {
 
     call.on('close', () => {
         clearTimeout(callTimeout);
-        console.log('Call closed with:', call.peer);
         videoElement.srcObject = null;
         container.classList.add('placeholder');
-        // if (videoElement === remoteScreen) {
-        //     container.classList.add('hidden');
-        // }
     });
 
     call.on('error', (err) => {
         clearTimeout(callTimeout);
-        console.error('Call error with:', call.peer, err);
+        console.error('❌ Call error with:', call.peer, err);
     });
 }
 
@@ -520,10 +617,8 @@ connectBtn.addEventListener('click', () => {
     if (connectBtn.disabled) return;
 
     const remoteId = remotePeerIdInput.value;
-    console.log('Attempting to connect to:', remoteId);
     
     if (!remoteId) {
-        console.warn('No Peer ID entered');
         showNotification('Please enter a Peer ID', 'error');
         return;
     }
@@ -557,7 +652,7 @@ connectBtn.addEventListener('click', () => {
     showNotification('Connecting...', 'info');
 
     call.on('error', (err) => {
-        console.error('Call error:', err);
+        console.error('❌ Call error:', err);
         showNotification('Connection failed', 'error');
         connectBtn.disabled = false;
         connectBtn.innerText = 'Connect';
@@ -565,6 +660,36 @@ connectBtn.addEventListener('click', () => {
     
     // Monitor ICE connection state
     if (call.peerConnection) {
+        // Monitor signaling and connection states
+        console.log('🔗 Initial WebRTC states:', {
+            signalingState: call.peerConnection.signalingState,
+            iceConnectionState: call.peerConnection.iceConnectionState,
+            iceGatheringState: call.peerConnection.iceGatheringState,
+            connectionState: call.peerConnection.connectionState
+        });
+        
+        call.peerConnection.onsignalingstatechange = () => {
+            console.log('📡 Signaling State Change:', call.peerConnection.signalingState);
+        };
+        
+        call.peerConnection.onconnectionstatechange = () => {
+            console.log('🔌 Connection State Change:', call.peerConnection.connectionState);
+            if (call.peerConnection.connectionState === 'failed') {
+                console.error('❌ WebRTC connection failed!');
+                showNotification('Connection failed - check network/firewall', 'error');
+            }
+        };
+        
+        // Monitor transceivers for codec info
+        const transceivers = call.peerConnection.getTransceivers();
+        console.log('📼 Transceivers:', transceivers.map(t => ({
+            mid: t.mid,
+            direction: t.direction,
+            currentDirection: t.currentDirection,
+            kind: t.sender?.track?.kind,
+            stopped: t.stopped
+        })));
+        
         // Log ICE candidates for debugging
         call.peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
@@ -574,7 +699,7 @@ connectBtn.addEventListener('click', () => {
 
         call.peerConnection.oniceconnectionstatechange = () => {
             const state = call.peerConnection.iceConnectionState;
-            console.log('ICE Connection State Change:', state);
+            console.log('🧊 ICE Connection State:', state);
             
             if (state === 'checking') {
                 showNotification('Establishing connection...', 'info');
@@ -593,7 +718,7 @@ connectBtn.addEventListener('click', () => {
                             
                             if (remoteCandidate) {
                                 const type = remoteCandidate.candidateType;
-                                console.log('Connected via:', type);
+                                console.log('🔗 Connected via:', type);
                                 if (type === 'relay') {
                                     showNotification('Connected via Relay (TURN)', 'info');
                                 } else {
@@ -604,21 +729,17 @@ connectBtn.addEventListener('click', () => {
                     });
                 });
             } else if (state === 'failed') {
-                console.error('ICE connection failed');
+                console.error('❌ ICE connection failed');
                 showNotification('Connection failed. Try again.', 'error');
                 connectBtn.disabled = false;
                 connectBtn.innerText = 'Retry';
                 
             } else if (state === 'disconnected') {
-                console.log('ICE state is disconnected. Waiting for recovery...');
-                // Don't show error immediately - this state can recover
-                
-                // Set a longer timeout - networks can be flaky
+                console.log('⚠️ ICE disconnected. Waiting for recovery...');
                 setTimeout(() => {
                     if (call.peerConnection && call.peerConnection.iceConnectionState === 'disconnected') {
-                        console.log('Still disconnected after 15s, but keeping connection...');
+                        console.log('⚠️ Still disconnected after 15s, keeping connection...');
                         showNotification('Connection unstable. Video may freeze.', 'error');
-                        // Don't close - let it try to recover
                     }
                 }, 15000);
                 
@@ -629,7 +750,7 @@ connectBtn.addEventListener('click', () => {
         };
 
         call.peerConnection.onicegatheringstatechange = () => {
-            console.log('ICE Gathering State:', call.peerConnection.iceGatheringState);
+            console.log('🧊 ICE Gathering State:', call.peerConnection.iceGatheringState);
         };
     }
 });
@@ -642,7 +763,6 @@ shareScreenBtn.addEventListener('click', async () => {
     } else {
         // Start sharing
         try {
-            // Show tip about audio before screen picker opens
             showNotification('💡 Check "Share audio" in the popup for movie sound!', 'info');
             
             myScreenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -658,8 +778,10 @@ shareScreenBtn.addEventListener('click', async () => {
             // Check if audio track was shared
             const audioTracks = myScreenStream.getAudioTracks();
             if (audioTracks.length > 0) {
+                console.log('🔊 Screen audio enabled');
                 showNotification('🔊 Screen audio enabled!', 'success');
             } else {
+                console.log('⚠️ No screen audio shared');
                 showNotification('⚠️ No audio shared - partner won\'t hear movie sound', 'error');
             }
 
@@ -672,6 +794,7 @@ shareScreenBtn.addEventListener('click', async () => {
             if (currentCall && currentCall.peer) {
                 const call = peer.call(currentCall.peer, myScreenStream, { metadata: { type: 'screen' } });
                 screenCall = call;
+                console.log('📺 Screen shared with:', currentCall.peer);
                 showNotification('Screen shared with partner!', 'success');
             }
 
@@ -681,7 +804,7 @@ shareScreenBtn.addEventListener('click', async () => {
             };
 
         } catch (err) {
-            console.error('Error sharing screen:', err);
+            console.error('❌ Error sharing screen:', err);
             if (err.name !== 'NotAllowedError') {
                 showNotification('Failed to share screen', 'error');
             }
@@ -897,7 +1020,7 @@ getLocalStream().then((success) => {
     if (success) {
         initPeer();
     } else {
-        console.error('Local stream failed, not initializing peer');
+        console.error('❌ Local stream failed, not initializing peer');
         showNotification('Please allow camera access and refresh', 'error');
     }
 });
