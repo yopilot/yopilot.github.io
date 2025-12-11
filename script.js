@@ -142,8 +142,29 @@ function initPeer() {
                 tracks: myStream?.getTracks().map(t => `${t.kind}:enabled=${t.enabled}:muted=${t.muted}:state=${t.readyState}`)
             });
             
+            // CRITICAL FIX: Ensure we answer with our stream AND configure transceivers properly
             call.answer(myStream);
             console.log('✅ Answer sent with local stream');
+            
+            // CRITICAL: Set up ontrack listener to receive remote media properly
+            if (call.peerConnection) {
+                console.log('🔍 Setting up ontrack listener for incoming media...');
+                
+                call.peerConnection.ontrack = (event) => {
+                    console.log('🎵 ONTRACK EVENT:', {
+                        kind: event.track.kind,
+                        trackId: event.track.id.substring(0, 8),
+                        streams: event.streams.length,
+                        streamId: event.streams[0]?.id
+                    });
+                    
+                    // This is often more reliable than the 'stream' event
+                    if (event.streams && event.streams[0]) {
+                        console.log('✅ Got stream from ontrack event');
+                        // The stream will also come through call.on('stream')
+                    }
+                };
+            }
             
             currentCall = call;
             handleStream(call, remoteVideo, containerRemoteVideo);
@@ -393,6 +414,15 @@ function handleStream(call, videoElement, container) {
                     
                     console.log('📊 Stat types found:', statTypes);
                     
+                    if (Object.keys(statTypes).length === 0) {
+                        console.error('❌❌❌ STATS OBJECT IS EMPTY! WebRTC connection broken!');
+                    }
+                    
+                    if (!statTypes['inbound-rtp']) {
+                        console.error('❌❌❌ NO INBOUND-RTP STATS! Media is not being received!');
+                        console.log('🔍 Available stats:', Object.keys(statTypes));
+                    }
+                    
                     // Check transceivers
                     const transceivers = call.peerConnection.getTransceivers();
                     console.log('📼 Transceivers:', transceivers.map(t => ({
@@ -417,6 +447,32 @@ function handleStream(call, videoElement, container) {
                         }
                     })));
                     
+                    // Check if transceivers are actually receiving
+                    transceivers.forEach((t, idx) => {
+                        console.log(`🔍 Transceiver ${idx}:`, {
+                            mid: t.mid,
+                            direction: t.direction,
+                            currentDirection: t.currentDirection,
+                            stopped: t.stopped
+                        });
+                        
+                        if (t.currentDirection === 'inactive' || t.currentDirection === 'sendonly') {
+                            console.error(`❌ Transceiver ${idx} is ${t.currentDirection} - NOT RECEIVING!`);
+                            
+                            // CRITICAL FIX: Try to change direction to receive media
+                            if (t.direction === 'sendonly' || t.direction === 'inactive') {
+                                console.log(`🔧 Attempting to fix transceiver ${idx} direction to sendrecv...`);
+                                try {
+                                    t.direction = 'sendrecv';
+                                    console.log('✅ Transceiver direction updated to sendrecv');
+                                    showNotification('Fixing media direction...', 'info');
+                                } catch (err) {
+                                    console.error('❌ Failed to update transceiver:', err);
+                                }
+                            }
+                        }
+                    });
+                    
                     // Log the SDP to see what was negotiated
                     const localDesc = call.peerConnection.localDescription;
                     const remoteDesc = call.peerConnection.remoteDescription;
@@ -438,6 +494,15 @@ function handleStream(call, videoElement, container) {
         // Set the stream
         console.log(`📺 Setting srcObject on ${videoElement.id}`);
         videoElement.srcObject = remoteStream;
+        
+        // CRITICAL FIX: Force load to kickstart the video element
+        try {
+            videoElement.load();
+            console.log('🔄 Called video.load() to force initialization');
+        } catch (err) {
+            console.log('⚠️ video.load() failed (may not be needed):', err.message);
+        }
+        
         console.log(`✅ srcObject set. Video element state:`, {
             paused: videoElement.paused,
             ended: videoElement.ended,
@@ -818,7 +883,16 @@ connectBtn.addEventListener('click', () => {
         }
     }
     
-    const call = peer.call(remoteId, myStream, { metadata: { type: 'video' } });
+    const call = peer.call(remoteId, myStream, { 
+        metadata: { type: 'video' },
+        // CRITICAL FIX: Explicitly configure call options
+        constraints: {
+            mandatory: {
+                OfferToReceiveAudio: true,
+                OfferToReceiveVideo: true
+            }
+        }
+    });
     
     if (!call) {
         console.error('❌ Failed to create call object');
@@ -831,6 +905,30 @@ connectBtn.addEventListener('click', () => {
     console.log('✅ Call object created:', call.peer);
 
     currentCall = call;
+    
+    // CRITICAL FIX: Add ontrack listener for outgoing calls too
+    if (call.peerConnection) {
+        console.log('🔍 Setting up ontrack listener for outgoing call...');
+        
+        call.peerConnection.ontrack = (event) => {
+            console.log('🎵 ONTRACK EVENT (outgoing call):', {
+                kind: event.track.kind,
+                trackId: event.track.id.substring(0, 8),
+                enabled: event.track.enabled,
+                muted: event.track.muted,
+                readyState: event.track.readyState,
+                streams: event.streams.length,
+                streamId: event.streams[0]?.id
+            });
+            
+            if (event.streams && event.streams[0]) {
+                console.log('✅ Got stream from ontrack event, tracks:', 
+                    event.streams[0].getTracks().map(t => `${t.kind}:${t.readyState}:muted=${t.muted}`)
+                );
+            }
+        };
+    }
+    
     handleStream(call, remoteVideo, containerRemoteVideo);
     
     showNotification('Connecting...', 'info');
