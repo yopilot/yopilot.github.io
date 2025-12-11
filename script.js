@@ -69,6 +69,7 @@ function updateThemeIcon(theme) {
 
 // Initialize PeerJS
 function initPeer() {
+    console.log('🚀 Initializing PeerJS with optimized ICE configuration...');
     peer = new Peer({
         debug: 2,
         host: '0.peerjs.com',
@@ -103,7 +104,8 @@ function initPeer() {
             iceTransportPolicy: 'all',
             // iceCandidatePoolSize: 10, // Removed to prevent timeouts
             bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
+            rtcpMuxPolicy: 'require',
+            encodedInsertableStreams: false
         }
     });
 
