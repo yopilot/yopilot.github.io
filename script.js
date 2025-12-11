@@ -241,49 +241,60 @@ function handleStream(call, videoElement, container) {
         videoElement.srcObject = remoteStream;
         container.classList.remove('placeholder');
         
-        // Wait for video to be ready, then play
-        videoElement.onloadedmetadata = () => {
-            console.log('Video metadata loaded for:', videoElement.id);
-            
-            const playVideo = async () => {
+        // Playback logic
+        const playVideo = async () => {
+            try {
+                // Always start muted to satisfy Autoplay policy immediately
+                videoElement.muted = true;
+                await videoElement.play();
+                console.log('Video playing (muted):', videoElement.id);
+                
+                // Now try to unmute
                 try {
-                    // Try playing with audio first
-                    await videoElement.play();
-                    console.log('Video playing:', videoElement.id);
-                    // Ensure audio is enabled
                     videoElement.muted = false;
+                    console.log('Unmuted successfully');
                 } catch (err) {
-                    console.warn('Play failed:', err.name, err.message);
-                    
-                    if (err.name === 'NotAllowedError') {
-                        // Autoplay blocked. Mute and try again.
-                        console.log('Autoplay blocked. Muting and playing.');
-                        videoElement.muted = true;
-                        try {
-                            await videoElement.play();
-                            console.log('Playing muted. Showing unmute button.');
-                            showNotification('Video playing muted. Click to unmute.', 'info');
-                            
-                            // Add a one-time click handler to unmute
-                            const unmuteHandler = () => {
-                                videoElement.muted = false;
-                                container.removeEventListener('click', unmuteHandler);
-                            };
-                            container.addEventListener('click', unmuteHandler);
-                        } catch (mutedErr) {
-                            console.error('Muted play also failed', mutedErr);
-                            showNotification('Click to start video', 'error');
-                        }
-                    } else if (err.name === 'AbortError') {
-                        // Interrupted. Retry once.
-                        console.log('Play interrupted, retrying...');
-                        setTimeout(playVideo, 500);
-                    }
+                    console.warn('Could not unmute automatically:', err);
+                    showNotification('Click video to enable audio', 'info');
+                    // Add one-time click handler
+                    const unmuteHandler = () => {
+                        videoElement.muted = false;
+                        container.removeEventListener('click', unmuteHandler);
+                    };
+                    container.addEventListener('click', unmuteHandler);
                 }
+            } catch (err) {
+                console.error('Play failed:', err);
+                if (err.name === 'AbortError') {
+                    setTimeout(playVideo, 500);
+                } else {
+                    showNotification('Click to start video', 'error');
+                    container.onclick = () => {
+                        playVideo();
+                        container.onclick = null;
+                    };
+                }
+            }
+        };
+
+        // Wait for video to be ready
+        if (videoElement.readyState >= 1) {
+            console.log('Video metadata already loaded');
+            playVideo();
+        } else {
+            videoElement.onloadedmetadata = () => {
+                console.log('Video metadata loaded for:', videoElement.id);
+                playVideo();
             };
             
-            playVideo();
-        };
+            // Fallback: Force play if metadata doesn't load in 2s (sometimes helps kickstart it)
+            setTimeout(() => {
+                if (videoElement.paused) {
+                    console.log('Force playing after timeout...');
+                    playVideo();
+                }
+            }, 2000);
+        }
         
         // Monitor track status
         remoteStream.getTracks().forEach(track => {
