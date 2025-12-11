@@ -883,16 +883,7 @@ connectBtn.addEventListener('click', () => {
         }
     }
     
-    const call = peer.call(remoteId, myStream, { 
-        metadata: { type: 'video' },
-        // CRITICAL FIX: Explicitly configure call options
-        constraints: {
-            mandatory: {
-                OfferToReceiveAudio: true,
-                OfferToReceiveVideo: true
-            }
-        }
-    });
+    const call = peer.call(remoteId, myStream, { metadata: { type: 'video' } });
     
     if (!call) {
         console.error('❌ Failed to create call object');
@@ -910,6 +901,11 @@ connectBtn.addEventListener('click', () => {
     if (call.peerConnection) {
         console.log('🔍 Setting up ontrack listener for outgoing call...');
         
+        // Track which kinds we've received
+        let audioReceived = false;
+        let videoReceived = false;
+        let combinedStream = null;
+        
         call.peerConnection.ontrack = (event) => {
             console.log('🎵 ONTRACK EVENT (outgoing call):', {
                 kind: event.track.kind,
@@ -925,6 +921,32 @@ connectBtn.addEventListener('click', () => {
                 console.log('✅ Got stream from ontrack event, tracks:', 
                     event.streams[0].getTracks().map(t => `${t.kind}:${t.readyState}:muted=${t.muted}`)
                 );
+                
+                // CRITICAL FIX: If PeerJS's stream event doesn't fire, use this stream directly
+                combinedStream = event.streams[0];
+                
+                if (event.track.kind === 'audio') audioReceived = true;
+                if (event.track.kind === 'video') videoReceived = true;
+                
+                // Once we have both tracks, trigger the stream manually if needed
+                if (audioReceived && videoReceived && combinedStream) {
+                    console.log('✅ Both audio and video tracks received via ontrack!');
+                    
+                    // Give PeerJS a moment to fire its own stream event
+                    setTimeout(() => {
+                        // Check if handleStream was already called
+                        if (!call.handled) {
+                            console.log('🔧 PeerJS stream event didn\'t fire, using ontrack stream directly');
+                            // Manually trigger stream handling
+                            handleStream(call, remoteVideo, containerRemoteVideo);
+                            // Manually set the stream since the event won't fire
+                            if (remoteVideo.srcObject === null) {
+                                remoteVideo.srcObject = combinedStream;
+                                console.log('📺 Set remote video srcObject from ontrack stream');
+                            }
+                        }
+                    }, 100);
+                }
             }
         };
     }
