@@ -143,11 +143,10 @@ button {
     display: grid;
     grid-template-columns: 1fr 1fr;
     grid-template-rows: 1fr 1fr;
-    gap: 1rem;
+    gap: 0.75rem;
     position: relative;
-    overflow-y: auto; /* Allow scrolling within the grid */
-    min-height: 0; /* Crucial for flex child scrolling */
-    padding-right: 4px; /* Space for scrollbar */
+    overflow: hidden;
+    min-height: 0;
 }
 
 /* Custom Scrollbar for Video Grid */
@@ -178,9 +177,9 @@ button {
     justify-content: center;
     align-items: center;
     transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-    aspect-ratio: 16/9;
     width: 100%;
     height: 100%;
+    min-height: 0;
 }
 
 /* .video-container.hidden {
@@ -190,6 +189,12 @@ button {
 .video-container video {
     width: 100%;
     height: 100%;
+    object-fit: contain;
+    background-color: #000;
+}
+
+/* Cover mode for webcam videos only */
+#local-video, #remote-video {
     object-fit: cover;
 }
 

@@ -70,6 +70,7 @@ function initPeer() {
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
+                { urls: 'stun:global.stun.twilio.com:3478' },
                 {
                     urls: 'turn:openrelay.metered.ca:80',
                     username: 'openrelayproject',
@@ -82,6 +83,11 @@ function initPeer() {
                 },
                 {
                     urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turns:openrelay.metered.ca:443?transport=tcp',
                     username: 'openrelayproject',
                     credential: 'openrelayproject'
                 }
@@ -164,23 +170,14 @@ async function getLocalStream() {
     try {
         myStream = await navigator.mediaDevices.getUserMedia({
             video: {
-                width: { ideal: 1920, min: 1280 },
-                height: { ideal: 1080, min: 720 },
-                frameRate: { ideal: 30, max: 60 }
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                frameRate: { ideal: 30 }
             },
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
-                autoGainControl: true,
-                sampleRate: 48000,
-                sampleSize: 16,
-                channelCount: 2,
-                latency: 0.01,
-                googEchoCancellation: true,
-                googAutoGainControl: true,
-                googNoiseSuppression: true,
-                googHighpassFilter: true,
-                googTypingNoiseDetection: true
+                autoGainControl: true
             }
         });
         localVideo.srcObject = myStream;
@@ -363,13 +360,13 @@ shareScreenBtn.addEventListener('click', async () => {
             myScreenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: {
                     cursor: "always",
-                    width: { ideal: 1920, max: 3840 },
-                    height: { ideal: 1080, max: 2160 },
-                    frameRate: { ideal: 60 }
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                    frameRate: { ideal: 30, max: 60 }
                 },
                 audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
+                    echoCancellation: false,
+                    noiseSuppression: false,
                     autoGainControl: false
                 }
             });
