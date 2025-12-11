@@ -57,15 +57,19 @@ function updateThemeIcon(theme) {
 // Initialize PeerJS
 function initPeer() {
     console.log('Initializing PeerJS...');
-    peer = new Peer(null, {
+    peer = new Peer({
+        debug: 2,
+        host: '0.peerjs.com',
+        secure: true,
+        port: 443,
+        path: '/',
         config: {
             iceServers: [
-                // STUN servers
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' },
-                // Free TURN servers (OpenRelay)
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
                 {
                     urls: 'turn:openrelay.metered.ca:80',
                     username: 'openrelayproject',
@@ -82,9 +86,8 @@ function initPeer() {
                     credential: 'openrelayproject'
                 }
             ],
-            iceCandidatePoolSize: 10
-        },
-        debug: 3
+            sdpSemantics: 'unified-plan'
+        }
     });
 
     peer.on('open', (id) => {
@@ -283,15 +286,28 @@ connectBtn.addEventListener('click', () => {
                 });
             } else if (state === 'failed') {
                 console.error('ICE connection failed');
-                showNotification('Connection failed - retrying...', 'error');
+                showNotification('Connection failed. Retrying...', 'error');
                 
-                // Try ICE restart
-                if (call.peerConnection.restartIce) {
-                    call.peerConnection.restartIce();
-                }
+                // If failed, we should probably close and let the user retry manually or auto-retry
+                // PeerJS doesn't support seamless ICE restart easily without renegotiation
+                connectBtn.disabled = false;
+                connectBtn.innerText = 'Retry';
+                
             } else if (state === 'disconnected') {
-                showNotification('Connection interrupted, waiting...', 'error');
-                // Don't reset button immediately - connection might recover
+                showNotification('Connection unstable. Waiting...', 'error');
+                console.log('ICE state is disconnected. Waiting for recovery...');
+                
+                // Set a timeout to declare it dead if it doesn't recover
+                setTimeout(() => {
+                    if (call.peerConnection.iceConnectionState === 'disconnected') {
+                        console.log('Connection timed out in disconnected state.');
+                        showNotification('Connection lost. Please try again.', 'error');
+                        call.close();
+                        connectBtn.disabled = false;
+                        connectBtn.innerText = 'Retry';
+                    }
+                }, 5000);
+                
             } else if (state === 'closed') {
                 connectBtn.disabled = false;
                 connectBtn.innerText = 'Connect';
