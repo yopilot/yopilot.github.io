@@ -41,9 +41,13 @@
             </div>
 
             <!-- Local Screen -->
-            <div class="video-container hidden" id="container-local-screen">
+            <div class="video-container placeholder" id="container-local-screen">
                 <video id="local-screen" autoplay muted playsinline></video>
                 <div class="video-label">Your Screen</div>
+                <div class="placeholder-content">
+                    <i class="fas fa-desktop"></i>
+                    <p>Not sharing screen</p>
+                </div>
                 <div class="video-controls-overlay">
                     <button class="expand-btn" title="Expand"><i class="fas fa-expand"></i></button>
                 </div>
@@ -63,7 +67,7 @@
             </div>
 
             <!-- Remote Screen -->
-            <div class="video-container placeholder hidden" id="container-remote-screen">
+            <div class="video-container placeholder" id="container-remote-screen">
                 <video id="remote-screen" autoplay playsinline></video>
                 <div class="video-label">Partner's Screen</div>
                 <div class="placeholder-content">

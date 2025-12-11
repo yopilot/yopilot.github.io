@@ -207,9 +207,9 @@ function handleStream(call, videoElement, container) {
         console.log('Stream received from:', call.peer);
         videoElement.srcObject = remoteStream;
         container.classList.remove('placeholder');
-        if (container.classList.contains('hidden')) {
-            container.classList.remove('hidden');
-        }
+        // if (container.classList.contains('hidden')) {
+        //     container.classList.remove('hidden');
+        // }
     });
 
     call.on('close', () => {
@@ -217,9 +217,9 @@ function handleStream(call, videoElement, container) {
         console.log('Call closed with:', call.peer);
         videoElement.srcObject = null;
         container.classList.add('placeholder');
-        if (videoElement === remoteScreen) {
-            container.classList.add('hidden');
-        }
+        // if (videoElement === remoteScreen) {
+        //     container.classList.add('hidden');
+        // }
     });
 
     call.on('error', (err) => {
@@ -375,7 +375,8 @@ shareScreenBtn.addEventListener('click', async () => {
             });
 
             localScreen.srcObject = myScreenStream;
-            containerLocalScreen.classList.remove('hidden');
+            containerLocalScreen.classList.remove('placeholder');
+            // containerLocalScreen.classList.remove('hidden');
             isScreenSharing = true;
             shareScreenBtn.classList.add('active');
 
@@ -408,7 +409,8 @@ function stopScreenShare() {
     }
 
     localScreen.srcObject = null;
-    containerLocalScreen.classList.add('hidden');
+    containerLocalScreen.classList.add('placeholder');
+    // containerLocalScreen.classList.add('hidden');
     isScreenSharing = false;
     shareScreenBtn.classList.remove('active');
 }
@@ -442,7 +444,7 @@ endCallBtn.addEventListener('click', () => {
     containerRemoteVideo.classList.add('placeholder');
     remoteScreen.srcObject = null;
     containerRemoteScreen.classList.add('placeholder');
-    containerRemoteScreen.classList.add('hidden');
+    // containerRemoteScreen.classList.add('hidden');
     
     showNotification('Call ended', 'info');
 });
@@ -494,7 +496,7 @@ function toggleFullscreen(targetContainer) {
                 c.classList.add('fullscreen');
                 c.classList.remove('pip');
             } else {
-                if (!c.classList.contains('hidden')) {
+                // if (!c.classList.contains('hidden')) {
                     c.classList.add('pip');
                     c.classList.remove('fullscreen');
                     
@@ -504,7 +506,7 @@ function toggleFullscreen(targetContainer) {
                     c.style.top = 'auto';
                     c.style.left = 'auto';
                     pipCount++;
-                }
+                // }
             }
         });
         isFullscreen = true;
