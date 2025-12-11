@@ -1,312 +1,99 @@
-﻿<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>P2P Screen Share Pro - Production</title>
-    <meta name="description" content="Production-grade peer-to-peer screen sharing with recording, file transfer, and real-time diagnostics">
-    <meta name="theme-color" content="#38bdf8">
-    
-    <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.json">
-    
-    <!-- Icons -->
-    <link rel="icon" type="image/svg+xml" href="icon-192.svg">
-    <link rel="apple-touch-icon" href="icon-192.svg">
-    
-    <!-- PeerJS CDN -->
-    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
-    
-    <link rel="stylesheet" href="styles.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Conference & Screen Share</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🖥️ P2P Screen Share</h1>
-            <p class="subtitle">Share your screen with friends - Powered by PeerJS!</p>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo">
+                <i class="fas fa-video"></i> ScreenShare Pro
+            </div>
+            <div class="connection-info">
+                <div class="my-id-container">
+                    <span>My ID:</span>
+                    <span id="my-peer-id" class="id-display">Generating...</span>
+                    <button id="copy-id-btn" class="icon-btn" title="Copy ID"><i class="fas fa-copy"></i></button>
+                </div>
+                <div class="connect-container">
+                    <input type="text" id="remote-peer-id" placeholder="Enter Partner ID">
+                    <button id="connect-btn" class="primary-btn">Connect</button>
+                </div>
+            </div>
+            <div class="theme-toggle">
+                <button id="theme-btn" class="icon-btn" title="Toggle Theme"><i class="fas fa-moon"></i></button>
+            </div>
         </header>
 
-        <div class="connection-panel">
-            <div class="id-section">
-                <label>Your Peer ID:</label>
-                <div class="id-display">
-                    <input type="text" id="myId" readonly>
-                    <button id="copyId" title="Copy ID">📋</button>
+        <main class="video-grid" id="video-grid">
+            <!-- Local Video -->
+            <div class="video-container" id="container-local-video">
+                <video id="local-video" autoplay muted playsinline></video>
+                <div class="video-label">You</div>
+                <div class="video-controls-overlay">
+                    <button class="expand-btn" title="Expand"><i class="fas fa-expand"></i></button>
                 </div>
             </div>
 
-            <div class="workflow-buttons">
-                <button id="startConnectionBtn" class="workflow-btn">
-                    <span class="icon">📤</span>
-                    <div>
-                        <strong>Connect to Friend</strong>
-                        <small>Enter your friend's ID to connect</small>
-                    </div>
-                </button>
-                <button id="receiveConnectionBtn" class="workflow-btn">
-                    <span class="icon">📥</span>
-                    <div>
-                        <strong>Receive Connection</strong>
-                        <small>Share your ID with friend</small>
-                    </div>
-                </button>
+            <!-- Local Screen -->
+            <div class="video-container hidden" id="container-local-screen">
+                <video id="local-screen" autoplay muted playsinline></video>
+                <div class="video-label">Your Screen</div>
+                <div class="video-controls-overlay">
+                    <button class="expand-btn" title="Expand"><i class="fas fa-expand"></i></button>
+                </div>
             </div>
-        </div>
 
-        <div class="controls">
-            <button id="shareScreen" disabled>
-                <span class="icon">🖥️</span>
-                <span>Share Screen</span>
+            <!-- Remote Video -->
+            <div class="video-container placeholder" id="container-remote-video">
+                <video id="remote-video" autoplay playsinline></video>
+                <div class="video-label">Partner</div>
+                <div class="placeholder-content">
+                    <i class="fas fa-user-slash"></i>
+                    <p>Waiting for partner...</p>
+                </div>
+                <div class="video-controls-overlay">
+                    <button class="expand-btn" title="Expand"><i class="fas fa-expand"></i></button>
+                </div>
+            </div>
+
+            <!-- Remote Screen -->
+            <div class="video-container placeholder hidden" id="container-remote-screen">
+                <video id="remote-screen" autoplay playsinline></video>
+                <div class="video-label">Partner's Screen</div>
+                <div class="placeholder-content">
+                    <i class="fas fa-desktop"></i>
+                    <p>No screen shared</p>
+                </div>
+                <div class="video-controls-overlay">
+                    <button class="expand-btn" title="Expand"><i class="fas fa-expand"></i></button>
+                </div>
+            </div>
+        </main>
+
+        <footer class="controls-bar">
+            <button id="toggle-mic-btn" class="control-btn active" title="Toggle Microphone">
+                <i class="fas fa-microphone"></i>
             </button>
-            <button id="stopShare" disabled>
-                <span class="icon">⏹️</span>
-                <span>Stop Sharing</span>
+            <button id="toggle-cam-btn" class="control-btn active" title="Toggle Camera">
+                <i class="fas fa-video"></i>
             </button>
-            <button id="recordBtn" disabled>
-                <span class="icon">⏺️</span>
-                <span>Record</span>
+            <button id="share-screen-btn" class="control-btn" title="Share Screen">
+                <i class="fas fa-desktop"></i>
             </button>
-            <button id="stopRecordBtn" disabled style="display: none;">
-                <span class="icon">⏹️</span>
-                <span>Stop Recording</span>
+            <button id="end-call-btn" class="control-btn danger" title="End Call">
+                <i class="fas fa-phone-slash"></i>
             </button>
-            <button id="shareFileBtn" disabled>
-                <span class="icon">📎</span>
-                <span>Share File</span>
-            </button>
-            <label class="toggle" style="margin-left: 20px;">
-                <input type="checkbox" id="micToggle" checked>
-                <span class="slider"></span>
-                <span class="label">🎤 Mic</span>
-            </label>
-            <label class="toggle" style="margin-left: 10px;">
-                <input type="checkbox" id="videoToggle">
-                <span class="slider"></span>
-                <span class="label">📹 Camera</span>
-            </label>
-            <div class="audio-controls">
-                <label class="volume-control">
-                    <span>🔊 Mic Volume:</span>
-                    <input type="range" id="micVolume" min="0" max="1" step="0.1" value="1">
-                </label>
-                <label class="volume-control">
-                    <span>🔊 System Volume:</span>
-                    <input type="range" id="systemVolume" min="0" max="1" step="0.1" value="0.7">
-                </label>
-            </div>
-        </div>
-
-        <div class="status-bar">
-            <span id="connectionStatus" class="status disconnected">⚪ Not Connected</span>
-            <span id="streamStatus" class="status">⚪ Not Sharing</span>
-            <span id="qualityIndicator" class="status quality">📊 Quality: --</span>
-            <span id="bandwidthIndicator" class="status">📶 Bandwidth: --</span>
-            <button id="qualitySettingsBtn" class="icon-btn" title="Quality Settings">⚙️</button>
-            <button id="diagnosticsBtn" class="icon-btn" title="Diagnostics">🔍</button>
-        </div>
-
-        <!-- Quality Settings Panel -->
-        <div class="settings-panel" id="qualitySettings" style="display: none;">
-            <div class="panel-header">
-                <h3>⚙️ Quality Settings</h3>
-                <button class="close-btn" id="closeQualitySettings">×</button>
-            </div>
-            <div class="panel-content">
-                <label>Video Quality:</label>
-                <select id="videoQuality">
-                    <option value="4k">4K (3840x2160)</option>
-                    <option value="1080p" selected>1080p (1920x1080)</option>
-                    <option value="720p">720p (1280x720)</option>
-                    <option value="480p">480p (854x480)</option>
-                </select>
-                <label>Frame Rate:</label>
-                <select id="frameRate">
-                    <option value="60">60 FPS</option>
-                    <option value="30" selected>30 FPS</option>
-                    <option value="15">15 FPS</option>
-                </select>
-                <label>Bitrate (kbps):</label>
-                <input type="range" id="bitrate" min="500" max="10000" step="500" value="2500">
-                <span id="bitrateValue">2500 kbps</span>
-            </div>
-        </div>
-
-        <!-- Diagnostics Panel -->
-        <div class="diagnostics-panel" id="diagnosticsPanel" style="display: none;">
-            <div class="panel-header">
-                <h3>🔍 Connection Diagnostics</h3>
-                <button class="close-btn" id="closeDiagnostics">×</button>
-            </div>
-            <div class="panel-content">
-                <div class="diagnostic-row">
-                    <span>Connection Type:</span>
-                    <span id="diagConnectionType">--</span>
-                </div>
-                <div class="diagnostic-row">
-                    <span>Latency:</span>
-                    <span id="diagLatency">--</span>
-                </div>
-                <div class="diagnostic-row">
-                    <span>Packet Loss:</span>
-                    <span id="diagPacketLoss">--</span>
-                </div>
-                <div class="diagnostic-row">
-                    <span>Upload Speed:</span>
-                    <span id="diagUploadSpeed">--</span>
-                </div>
-                <div class="diagnostic-row">
-                    <span>Download Speed:</span>
-                    <span id="diagDownloadSpeed">--</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Notification Container -->
-        <div id="notificationContainer" class="notification-container"></div>
-
-        <!-- File Transfer Progress -->
-        <div id="fileTransferPanel" class="file-transfer-panel" style="display: none;">
-            <div class="panel-header">
-                <h3>📁 File Transfer</h3>
-            </div>
-            <div id="fileTransferList" class="file-transfer-list"></div>
-        </div>
-
-        <!-- P2P Chat Panel -->
-        <div class="chat-panel" style="display: none;" id="chatPanel">
-            <div class="chat-header">
-                <h3>💬 P2P Chat</h3>
-                <button id="toggleChat" class="minimize-btn">_</button>
-            </div>
-            <div class="chat-messages" id="chatMessages"></div>
-            <div class="chat-input-area">
-                <input type="text" id="chatInput" placeholder="Type a message..." />
-                <button id="sendMessage">Send</button>
-            </div>
-        </div>
-
-        <div class="video-container" id="videoContainer">
-            <div class="video-wrapper local-video hidden" id="localScreenWrapper" data-stream-type="screen-local">
-                <video id="localScreen" autoplay muted playsinline></video>
-                <span class="video-label">Your Screen Share</span>
-                <div class="pip-controls">
-                    <button class="pip-btn" onclick="app.toggleMinimize('localScreenWrapper')">−</button>
-                </div>
-                <button class="fullscreen-btn" onclick="app.toggleFullscreen('localScreenWrapper')">⛶</button>
-                <div class="resize-handle corner resize-se"></div>
-                <div class="resize-handle corner resize-sw"></div>
-                <div class="resize-handle corner resize-ne"></div>
-                <div class="resize-handle corner resize-nw"></div>
-                <div class="resize-handle edge resize-e"></div>
-                <div class="resize-handle edge resize-w"></div>
-                <div class="resize-handle edge resize-n"></div>
-                <div class="resize-handle edge resize-s"></div>
-            </div>
-            <div class="video-wrapper remote-video hidden" id="remoteScreenWrapper" data-stream-type="screen-remote">
-                <video id="remoteScreen" autoplay playsinline></video>
-                <span class="video-label">Friend's Screen Share</span>
-                <div class="pip-controls">
-                    <button class="pip-btn" onclick="app.toggleMinimize('remoteScreenWrapper')">−</button>
-                </div>
-                <button class="fullscreen-btn" onclick="app.toggleFullscreen('remoteScreenWrapper')">⛶</button>
-                <div class="resize-handle corner resize-se"></div>
-                <div class="resize-handle corner resize-sw"></div>
-                <div class="resize-handle corner resize-ne"></div>
-                <div class="resize-handle corner resize-nw"></div>
-                <div class="resize-handle edge resize-e"></div>
-                <div class="resize-handle edge resize-w"></div>
-                <div class="resize-handle edge resize-n"></div>
-                <div class="resize-handle edge resize-s"></div>
-            </div>
-            <div class="video-wrapper local-video hidden" id="localVideoWrapper" data-stream-type="video-local">
-                <video id="localVideo" autoplay muted playsinline></video>
-                <span class="video-label">Your Video Call</span>
-                <div class="pip-controls">
-                    <button class="pip-btn" onclick="app.toggleMinimize('localVideoWrapper')">−</button>
-                </div>
-                <button class="fullscreen-btn" onclick="app.toggleFullscreen('localVideoWrapper')">⛶</button>
-                <div class="resize-handle corner resize-se"></div>
-                <div class="resize-handle corner resize-sw"></div>
-                <div class="resize-handle corner resize-ne"></div>
-                <div class="resize-handle corner resize-nw"></div>
-                <div class="resize-handle edge resize-e"></div>
-                <div class="resize-handle edge resize-w"></div>
-                <div class="resize-handle edge resize-n"></div>
-                <div class="resize-handle edge resize-s"></div>
-            </div>
-            <div class="video-wrapper remote-video hidden" id="remoteVideoWrapper" data-stream-type="video-remote">
-                <video id="remoteVideo" autoplay playsinline></video>
-                <span class="video-label">Friend's Video Call</span>
-                <div class="pip-controls">
-                    <button class="pip-btn" onclick="app.toggleMinimize('remoteVideoWrapper')">−</button>
-                </div>
-                <button class="fullscreen-btn" onclick="app.toggleFullscreen('remoteVideoWrapper')">⛶</button>
-                <div class="resize-handle corner resize-se"></div>
-                <div class="resize-handle corner resize-sw"></div>
-                <div class="resize-handle corner resize-ne"></div>
-                <div class="resize-handle corner resize-nw"></div>
-                <div class="resize-handle edge resize-e"></div>
-                <div class="resize-handle edge resize-w"></div>
-                <div class="resize-handle edge resize-n"></div>
-                <div class="resize-handle edge resize-s"></div>
-            </div>
-        </div>
-
-        <div class="instructions">
-            <h3>How to use:</h3>
-            <ol>
-                <li>Wait for your Peer ID to appear (automatically generated)</li>
-                <li>Share your ID with your friend</li>
-                <li>Click "Connect to Friend" and enter their ID</li>
-                <li>Once connected, choose: "Share Screen" OR "Start Video Call"</li>
-                <li>Use P2P chat to message directly (no server!)</li>
-            </ol>
-            <p class="note">✨ PeerJS handles all the complex signaling - 99% connection success rate!</p>
-            <p class="shortcuts">
-                <strong>Keyboard Shortcuts:</strong><br>
-                <kbd>Ctrl+F</kbd> Toggle fullscreen • <kbd>Ctrl+M</kbd> Toggle microphone • <kbd>Ctrl+S</kbd> Toggle screen share • <kbd>Ctrl+V</kbd> Toggle camera • <kbd>Ctrl+R</kbd> Record • <kbd>Ctrl+Shift+F</kbd> Share file
-            </p>
-            <p class="note">🔒 End-to-end encrypted • 🚀 No data stored on servers • 🌍 Works worldwide</p>
-        </div>
+        </footer>
     </div>
 
+    <div id="notification-area"></div>
+
     <script src="script.js"></script>
-    
-    <!-- Service Worker Registration -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./service-worker.js')
-                    .then(registration => {
-                        console.log('✅ Service Worker registered:', registration.scope);
-                        
-                        // Check for updates
-                        registration.addEventListener('updatefound', () => {
-                            const newWorker = registration.installing;
-                            newWorker.addEventListener('statechange', () => {
-                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    // New version available
-                                    if (confirm('New version available! Reload to update?')) {
-                                        newWorker.postMessage({ type: 'SKIP_WAITING' });
-                                        window.location.reload();
-                                    }
-                                }
-                            });
-                        });
-                    })
-                    .catch(error => {
-                        console.error('❌ Service Worker registration failed:', error);
-                    });
-            });
-            
-            // Handle service worker updates
-            let refreshing;
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                if (refreshing) return;
-                window.location.reload();
-                refreshing = true;
-            });
-        }
-    </script>
 </body>
 </html>
