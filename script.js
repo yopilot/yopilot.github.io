@@ -80,36 +80,25 @@ function initPeer() {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                // Free TURN servers from Metered
+                // Free public TURN servers
                 {
-                    urls: 'turn:a.relay.metered.ca:80',
-                    username: 'e8dd65b92f0a8b8b1c27c83c',
-                    credential: 'kQKFu7NLjQ3OlEh/'
+                    urls: 'turn:freestun.net:3479',
+                    username: 'free',
+                    credential: 'free'
                 },
                 {
-                    urls: 'turn:a.relay.metered.ca:80?transport=tcp',
-                    username: 'e8dd65b92f0a8b8b1c27c83c',
-                    credential: 'kQKFu7NLjQ3OlEh/'
+                    urls: 'turn:freeturn.net:3478',
+                    username: 'free',
+                    credential: 'free'
                 },
                 {
-                    urls: 'turn:a.relay.metered.ca:443',
-                    username: 'e8dd65b92f0a8b8b1c27c83c',
-                    credential: 'kQKFu7NLjQ3OlEh/'
-                },
-                {
-                    urls: 'turn:a.relay.metered.ca:443?transport=tcp',
-                    username: 'e8dd65b92f0a8b8b1c27c83c',
-                    credential: 'kQKFu7NLjQ3OlEh/'
-                },
-                {
-                    urls: 'turns:a.relay.metered.ca:443?transport=tcp',
-                    username: 'e8dd65b92f0a8b8b1c27c83c',
-                    credential: 'kQKFu7NLjQ3OlEh/'
+                    urls: 'turn:numb.viagenie.ca:3478',
+                    username: 'webrtc@live.com',
+                    credential: 'muazkh'
                 }
             ],
             sdpSemantics: 'unified-plan',
-            iceTransportPolicy: 'relay',  // Force TURN relay - bypasses all NAT issues
+            iceTransportPolicy: 'all',  // Try both direct and relay
             iceCandidatePoolSize: 10,
             bundlePolicy: 'max-bundle',
             rtcpMuxPolicy: 'require'
@@ -236,9 +225,27 @@ function handleStream(call, videoElement, container) {
         videoElement.srcObject = remoteStream;
         container.classList.remove('placeholder');
         
-        // Force play (needed for some browsers)
-        videoElement.play().catch(err => {
-            console.log('Autoplay blocked, user interaction needed:', err);
+        // Force play with muted first (bypasses autoplay), then unmute
+        videoElement.muted = true;
+        videoElement.play().then(() => {
+            // If it's not a local video, unmute it after a short delay
+            if (videoElement !== localVideo && videoElement !== localScreen) {
+                setTimeout(() => {
+                    videoElement.muted = false;
+                    console.log('Video unmuted:', videoElement.id);
+                }, 500);
+            }
+        }).catch(err => {
+            console.log('Play failed, adding click handler:', err);
+            // Add click to play
+            const playOnClick = () => {
+                videoElement.muted = false;
+                videoElement.play();
+                showNotification('Video started!', 'success');
+                container.removeEventListener('click', playOnClick);
+            };
+            container.addEventListener('click', playOnClick);
+            showNotification('Click video to start playback', 'info');
         });
         
         // Monitor track status
