@@ -321,6 +321,68 @@ function handleStream(call, videoElement, container) {
             });
         });
         
+        // CRITICAL: Check if we can get sender info from the peer connection
+        if (call.peerConnection) {
+            const senders = call.peerConnection.getSenders();
+            console.log('📤 Checking SENDER tracks (what remote peer is sending):');
+            senders.forEach(sender => {
+                if (sender.track) {
+                    console.log(`  ${sender.track.kind} sender:`, {
+                        enabled: sender.track.enabled,
+                        muted: sender.track.muted,
+                        readyState: sender.track.readyState,
+                        id: sender.track.id.substring(0, 8)
+                    });
+                }
+            });
+            
+            const receivers = call.peerConnection.getReceivers();
+            console.log('📥 Checking RECEIVER tracks (what we are receiving):');
+            receivers.forEach(receiver => {
+                if (receiver.track) {
+                    console.log(`  ${receiver.track.kind} receiver:`, {
+                        enabled: receiver.track.enabled,
+                        muted: receiver.track.muted,
+                        readyState: receiver.track.readyState,
+                        id: receiver.track.id.substring(0, 8)
+                    });
+                }
+            });
+        }
+        
+        // IMMEDIATE stats check to see initial state
+        if (call.peerConnection) {
+            console.log('📊 Getting IMMEDIATE WebRTC stats...');
+            setTimeout(async () => {
+                try {
+                    const stats = await call.peerConnection.getStats();
+                    console.log('📊 Initial WebRTC Stats (500ms after stream received):');
+                    
+                    stats.forEach(report => {
+                        if (report.type === 'inbound-rtp') {
+                            console.log(`  ${report.kind} inbound:`, {
+                                bytesReceived: report.bytesReceived,
+                                packetsReceived: report.packetsReceived,
+                                packetsLost: report.packetsLost,
+                                framesReceived: report.framesReceived,
+                                framesDecoded: report.framesDecoded,
+                                jitter: report.jitter
+                            });
+                        }
+                        if (report.type === 'remote-inbound-rtp') {
+                            console.log(`  ${report.kind} remote-inbound (what they see from us):`, {
+                                packetsLost: report.packetsLost,
+                                jitter: report.jitter,
+                                roundTripTime: report.roundTripTime
+                            });
+                        }
+                    });
+                } catch (err) {
+                    console.error('❌ Failed to get initial stats:', err);
+                }
+            }, 500);
+        }
+        
         // Set the stream
         console.log(`📺 Setting srcObject on ${videoElement.id}`);
         videoElement.srcObject = remoteStream;
@@ -343,7 +405,7 @@ function handleStream(call, videoElement, container) {
                 readyState: videoElement.readyState,
                 networkState: videoElement.networkState,
                 srcObject: videoElement.srcObject ? 'present' : 'null',
-                tracks: videoElement.srcObject ? videoElement.srcObject.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`) : 'none'
+                tracks: videoElement.srcObject ? videoElement.srcObject.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}:muted=${t.muted}`) : 'none'
             });
             
             try {
@@ -404,30 +466,26 @@ function handleStream(call, videoElement, container) {
         // Wait for video to be ready
         console.log(`📊 Video ${videoElement.id} readyState: ${videoElement.readyState} (${['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'][videoElement.readyState]})`);
         
-        if (videoElement.readyState >= 1) {
-            console.log('✅ Video metadata already loaded, playing immediately');
-            playVideo();
-        } else {
-            console.log('⏳ Waiting for metadata to load...');
+        // CRITICAL FIX: Try playing IMMEDIATELY to prevent track from muting
+        // The track mutes if the video element doesn't start consuming the stream fast enough
+        console.log('🚀 Attempting IMMEDIATE play to prevent track timeout...');
+        playVideo();
+        
+        // Still set up the metadata handler as backup
+        if (videoElement.readyState < 1) {
+            console.log('⏳ Also waiting for metadata as backup...');
             videoElement.onloadedmetadata = () => {
                 console.log(`✅ Video metadata loaded for: ${videoElement.id}`, {
                     videoWidth: videoElement.videoWidth,
                     videoHeight: videoElement.videoHeight,
                     duration: videoElement.duration
                 });
-                playVideo();
-            };
-            
-            // Fallback: Force play if metadata doesn't load in 2s (sometimes helps kickstart it)
-            setTimeout(() => {
-                console.log(`⏰ 2s timeout reached for ${videoElement.id}`);
+                // Don't call playVideo again if already playing
                 if (videoElement.paused) {
-                    console.log('⚠️ Video still paused, force playing after timeout...');
+                    console.log('📺 Video still paused after metadata load, retrying play...');
                     playVideo();
-                } else {
-                    console.log('ℹ️ Video already playing, no action needed');
                 }
-            }, 2000);
+            };
         }
         
         // Add comprehensive video element event listeners
@@ -507,20 +565,39 @@ function handleStream(call, videoElement, container) {
                     readyState: track.readyState,
                     muted: track.muted
                 });
+                
+                // Set a timer to check if it stays unmuted
+                setTimeout(() => {
+                    console.log(`⏰ Track state 2s after unmute (${track.kind}):`, {
+                        muted: track.muted,
+                        enabled: track.enabled,
+                        readyState: track.readyState
+                    });
+                    if (track.muted) {
+                        console.error('❌ Track muted again within 2 seconds!');
+                    }
+                }, 2000);
             };
         });
         
-        // WebRTC Stats Monitoring - Check actual data flow
+        // WebRTC Stats Monitoring - Check actual data flow MORE FREQUENTLY
+        let lastVideoBytes = 0;
+        let lastAudioBytes = 0;
+        let statsCheckCount = 0;
+        
         const statsMonitor = setInterval(async () => {
             if (!call.peerConnection) {
                 clearInterval(statsMonitor);
                 return;
             }
             
+            statsCheckCount++;
+            
             try {
                 const stats = await call.peerConnection.getStats();
                 let videoInbound = null;
                 let audioInbound = null;
+                let candidatePair = null;
                 
                 stats.forEach(report => {
                     if (report.type === 'inbound-rtp' && report.kind === 'video') {
@@ -529,23 +606,45 @@ function handleStream(call, videoElement, container) {
                     if (report.type === 'inbound-rtp' && report.kind === 'audio') {
                         audioInbound = report;
                     }
+                    if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                        candidatePair = report;
+                    }
                 });
                 
-                console.log('📡 WebRTC Stats:', {
+                const videoBytesDelta = videoInbound ? videoInbound.bytesReceived - lastVideoBytes : 0;
+                const audioBytesDelta = audioInbound ? audioInbound.bytesReceived - lastAudioBytes : 0;
+                
+                console.log(`📡 WebRTC Stats Check #${statsCheckCount}:`, {
                     video: videoInbound ? {
                         bytesReceived: videoInbound.bytesReceived,
+                        bytesDelta: videoBytesDelta,
                         packetsReceived: videoInbound.packetsReceived,
                         packetsLost: videoInbound.packetsLost,
-                        framesDecoded: videoInbound.framesDecoded,
                         framesReceived: videoInbound.framesReceived,
+                        framesDecoded: videoInbound.framesDecoded,
                         framesDropped: videoInbound.framesDropped,
-                        codecId: videoInbound.codecId
-                    } : 'No video stats',
+                        jitter: videoInbound.jitter?.toFixed(4)
+                    } : '❌ No video stats',
                     audio: audioInbound ? {
                         bytesReceived: audioInbound.bytesReceived,
+                        bytesDelta: audioBytesDelta,
                         packetsReceived: audioInbound.packetsReceived
-                    } : 'No audio stats'
+                    } : '❌ No audio stats',
+                    connection: candidatePair ? {
+                        currentRoundTripTime: candidatePair.currentRoundTripTime?.toFixed(3),
+                        availableOutgoingBitrate: candidatePair.availableOutgoingBitrate,
+                        state: candidatePair.state
+                    } : 'No connection stats'
                 });
+                
+                // Alert if NO data is flowing
+                if (videoInbound && videoBytesDelta === 0 && statsCheckCount > 3) {
+                    console.error('❌❌❌ NO VIDEO DATA FLOWING! Bytes received is not increasing!');
+                    showNotification('⚠️ No video data received - check remote camera', 'error');
+                }
+                
+                lastVideoBytes = videoInbound ? videoInbound.bytesReceived : 0;
+                lastAudioBytes = audioInbound ? audioInbound.bytesReceived : 0;
                 
                 // Get codec info
                 if (videoInbound && videoInbound.codecId) {
@@ -560,9 +659,9 @@ function handleStream(call, videoElement, container) {
                 }
                 
             } catch (err) {
-                console.error('Failed to get stats:', err);
+                console.error('❌ Failed to get periodic stats:', err);
             }
-        }, 3000);
+        }, 1000); // Check every 1 second for more responsive debugging
         
         // Periodic state monitoring
         const stateMonitor = setInterval(() => {
@@ -633,6 +732,24 @@ connectBtn.addEventListener('click', () => {
         active: myStream?.active,
         tracks: myStream?.getTracks().map(t => `${t.kind}:enabled=${t.enabled}:muted=${t.muted}:state=${t.readyState}:id=${t.id.substring(0,8)}`)
     });
+    
+    // CRITICAL: Verify local stream is actually working before sending
+    const videoTrack = myStream?.getVideoTracks()[0];
+    if (videoTrack) {
+        const settings = videoTrack.getSettings();
+        console.log('📹 Local video track settings before call:', {
+            width: settings.width,
+            height: settings.height,
+            frameRate: settings.frameRate,
+            facingMode: settings.facingMode,
+            deviceId: settings.deviceId
+        });
+        
+        if (settings.width === 0 || settings.height === 0) {
+            console.error('❌ WARNING: Local video has 0x0 dimensions - camera may not be working!');
+            showNotification('⚠️ Camera issue detected - check permissions', 'error');
+        }
+    }
     
     const call = peer.call(remoteId, myStream, { metadata: { type: 'video' } });
     
