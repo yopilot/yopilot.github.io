@@ -23,6 +23,19 @@ const themeBtn = document.getElementById('theme-btn');
 const videoGrid = document.getElementById('video-grid');
 const notificationArea = document.getElementById('notification-area');
 
+// Volume Controls
+const screenVolumeSlider = document.getElementById('screen-volume');
+const partnerVolumeSlider = document.getElementById('partner-volume');
+
+// Volume control event listeners
+screenVolumeSlider?.addEventListener('input', (e) => {
+    remoteScreen.volume = e.target.value / 100;
+});
+
+partnerVolumeSlider?.addEventListener('input', (e) => {
+    remoteVideo.volume = e.target.value / 100;
+});
+
 // State
 let peer;
 let myStream;
@@ -68,36 +81,38 @@ function initPeer() {
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' },
+                // Free TURN servers from Metered
                 {
-                    urls: 'turn:openrelay.metered.ca:80',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:a.relay.metered.ca:80',
+                    username: 'e8dd65b92f0a8b8b1c27c83c',
+                    credential: 'kQKFu7NLjQ3OlEh/'
                 },
                 {
-                    urls: 'turn:openrelay.metered.ca:443',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:a.relay.metered.ca:80?transport=tcp',
+                    username: 'e8dd65b92f0a8b8b1c27c83c',
+                    credential: 'kQKFu7NLjQ3OlEh/'
                 },
                 {
-                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:a.relay.metered.ca:443',
+                    username: 'e8dd65b92f0a8b8b1c27c83c',
+                    credential: 'kQKFu7NLjQ3OlEh/'
                 },
                 {
-                    urls: 'turns:openrelay.metered.ca:443?transport=tcp',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+                    username: 'e8dd65b92f0a8b8b1c27c83c',
+                    credential: 'kQKFu7NLjQ3OlEh/'
+                },
+                {
+                    urls: 'turns:a.relay.metered.ca:443?transport=tcp',
+                    username: 'e8dd65b92f0a8b8b1c27c83c',
+                    credential: 'kQKFu7NLjQ3OlEh/'
                 }
             ],
             sdpSemantics: 'unified-plan',
-            iceTransportPolicy: 'all', // Explicitly allow all candidates
+            iceTransportPolicy: 'relay',  // Force TURN relay - bypasses all NAT issues
             iceCandidatePoolSize: 10,
             bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require',
-            encodedInsertableStreams: false
+            rtcpMuxPolicy: 'require'
         }
     });
 
@@ -136,10 +151,23 @@ function initPeer() {
         const callType = call.metadata?.type || 'video';
         
         if (callType === 'video') {
-            console.log('Answering video call...');
+            console.log('Answering video call with stream:', myStream?.getTracks().map(t => t.kind));
             call.answer(myStream);
             currentCall = call;
             handleStream(call, remoteVideo, containerRemoteVideo);
+            
+            // Monitor the answer's ICE state too
+            if (call.peerConnection) {
+                call.peerConnection.oniceconnectionstatechange = () => {
+                    console.log('Answer ICE State:', call.peerConnection.iceConnectionState);
+                };
+                call.peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        console.log('Answer ICE Candidate:', event.candidate.type, event.candidate.address || '');
+                    }
+                };
+            }
+            
             showNotification('Call connected!', 'success');
         } else if (callType === 'screen') {
             console.log('Answering screen share call...');
@@ -202,11 +230,29 @@ function handleStream(call, videoElement, container) {
     call.on('stream', (remoteStream) => {
         clearTimeout(callTimeout);
         console.log('Stream received from:', call.peer);
+        console.log('Stream tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`));
+        
+        // Set the stream
         videoElement.srcObject = remoteStream;
         container.classList.remove('placeholder');
-        // if (container.classList.contains('hidden')) {
-        //     container.classList.remove('hidden');
-        // }
+        
+        // Force play (needed for some browsers)
+        videoElement.play().catch(err => {
+            console.log('Autoplay blocked, user interaction needed:', err);
+        });
+        
+        // Monitor track status
+        remoteStream.getTracks().forEach(track => {
+            track.onended = () => {
+                console.log('Track ended:', track.kind);
+            };
+            track.onmute = () => {
+                console.log('Track muted:', track.kind);
+            };
+            track.onunmute = () => {
+                console.log('Track unmuted:', track.kind);
+            };
+        });
     });
 
     call.on('close', () => {
@@ -315,27 +361,22 @@ connectBtn.addEventListener('click', () => {
                 });
             } else if (state === 'failed') {
                 console.error('ICE connection failed');
-                showNotification('Connection failed. Retrying...', 'error');
-                
-                // If failed, we should probably close and let the user retry manually or auto-retry
-                // PeerJS doesn't support seamless ICE restart easily without renegotiation
+                showNotification('Connection failed. Try again.', 'error');
                 connectBtn.disabled = false;
                 connectBtn.innerText = 'Retry';
                 
             } else if (state === 'disconnected') {
-                showNotification('Connection unstable. Waiting...', 'error');
                 console.log('ICE state is disconnected. Waiting for recovery...');
+                // Don't show error immediately - this state can recover
                 
-                // Set a timeout to declare it dead if it doesn't recover
+                // Set a longer timeout - networks can be flaky
                 setTimeout(() => {
-                    if (call.peerConnection.iceConnectionState === 'disconnected') {
-                        console.log('Connection timed out in disconnected state.');
-                        showNotification('Connection lost. Please try again.', 'error');
-                        call.close();
-                        connectBtn.disabled = false;
-                        connectBtn.innerText = 'Retry';
+                    if (call.peerConnection && call.peerConnection.iceConnectionState === 'disconnected') {
+                        console.log('Still disconnected after 15s, but keeping connection...');
+                        showNotification('Connection unstable. Video may freeze.', 'error');
+                        // Don't close - let it try to recover
                     }
-                }, 5000);
+                }, 15000);
                 
             } else if (state === 'closed') {
                 connectBtn.disabled = false;
@@ -357,6 +398,9 @@ shareScreenBtn.addEventListener('click', async () => {
     } else {
         // Start sharing
         try {
+            // Show tip about audio before screen picker opens
+            showNotification('💡 Check "Share audio" in the popup for movie sound!', 'info');
+            
             myScreenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: {
                     cursor: "always",
@@ -364,16 +408,19 @@ shareScreenBtn.addEventListener('click', async () => {
                     height: { ideal: 1080 },
                     frameRate: { ideal: 30, max: 60 }
                 },
-                audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false
-                }
+                audio: true  // Request audio - browser will show checkbox
             });
+
+            // Check if audio track was shared
+            const audioTracks = myScreenStream.getAudioTracks();
+            if (audioTracks.length > 0) {
+                showNotification('🔊 Screen audio enabled!', 'success');
+            } else {
+                showNotification('⚠️ No audio shared - partner won\'t hear movie sound', 'error');
+            }
 
             localScreen.srcObject = myScreenStream;
             containerLocalScreen.classList.remove('placeholder');
-            // containerLocalScreen.classList.remove('hidden');
             isScreenSharing = true;
             shareScreenBtn.classList.add('active');
 
@@ -381,6 +428,7 @@ shareScreenBtn.addEventListener('click', async () => {
             if (currentCall && currentCall.peer) {
                 const call = peer.call(currentCall.peer, myScreenStream, { metadata: { type: 'screen' } });
                 screenCall = call;
+                showNotification('Screen shared with partner!', 'success');
             }
 
             // Handle user stopping via browser UI
@@ -390,6 +438,9 @@ shareScreenBtn.addEventListener('click', async () => {
 
         } catch (err) {
             console.error('Error sharing screen:', err);
+            if (err.name !== 'NotAllowedError') {
+                showNotification('Failed to share screen', 'error');
+            }
         }
     }
 });
