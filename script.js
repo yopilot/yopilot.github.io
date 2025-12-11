@@ -56,7 +56,18 @@ function updateThemeIcon(theme) {
 
 // Initialize PeerJS
 function initPeer() {
-    peer = new Peer();
+    peer = new Peer(null, {
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
+            ]
+        },
+        debug: 2
+    });
 
     peer.on('open', (id) => {
         myPeerIdDisplay.innerText = id;
@@ -117,6 +128,14 @@ function handleStream(call, videoElement, container) {
 }
 
 // Connection Logic
+remotePeerIdInput.addEventListener('paste', (e) => {
+    setTimeout(() => {
+        if (remotePeerIdInput.value.trim().length > 0) {
+            connectBtn.click();
+        }
+    }, 100);
+});
+
 connectBtn.addEventListener('click', () => {
     const remoteId = remotePeerIdInput.value;
     if (!remoteId) {
@@ -126,10 +145,21 @@ connectBtn.addEventListener('click', () => {
 
     // Call with video
     const call = peer.call(remoteId, myStream, { metadata: { type: 'video' } });
+    
+    if (!call) {
+        showNotification('Failed to start call', 'error');
+        return;
+    }
+
     currentCall = call;
     handleStream(call, remoteVideo, containerRemoteVideo);
     
     showNotification('Calling...', 'info');
+
+    call.on('error', (err) => {
+        console.error('Call error:', err);
+        showNotification('Connection failed', 'error');
+    });
 });
 
 // Screen Sharing
