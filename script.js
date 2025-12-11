@@ -56,6 +56,7 @@ function updateThemeIcon(theme) {
 
 // Initialize PeerJS
 function initPeer() {
+    console.log('Initializing PeerJS...');
     peer = new Peer(null, {
         config: {
             iceServers: [
@@ -63,26 +64,41 @@ function initPeer() {
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
+                { urls: 'stun:stun4.l.google.com:19302' },
+                { urls: 'stun:stun.services.mozilla.com' }
             ]
         },
-        debug: 2
+        debug: 3
     });
 
     peer.on('open', (id) => {
+        console.log('My Peer ID is:', id);
         myPeerIdDisplay.innerText = id;
         showNotification('Ready to connect', 'success');
     });
 
+    peer.on('connection', (conn) => {
+        console.log('Incoming connection from:', conn.peer);
+        conn.on('open', () => {
+            console.log('Connection established with:', conn.peer);
+        });
+        conn.on('error', (err) => {
+            console.error('Connection error:', err);
+        });
+    });
+
     peer.on('call', (call) => {
+        console.log('Incoming call from:', call.peer, 'Metadata:', call.metadata);
         // Answer incoming calls
         const callType = call.metadata?.type || 'video';
         
         if (callType === 'video') {
+            console.log('Answering video call...');
             call.answer(myStream);
             currentCall = call;
             handleStream(call, remoteVideo, containerRemoteVideo);
         } else if (callType === 'screen') {
+            console.log('Answering screen share call...');
             call.answer(); // Answer screen share calls (usually one-way)
             screenCall = call;
             handleStream(call, remoteScreen, containerRemoteScreen);
@@ -90,8 +106,17 @@ function initPeer() {
     });
 
     peer.on('error', (err) => {
-        console.error(err);
+        console.error('PeerJS Error:', err);
         showNotification(`Error: ${err.type}`, 'error');
+    });
+
+    peer.on('disconnected', () => {
+        console.log('Peer disconnected from server');
+        showNotification('Disconnected from server', 'error');
+    });
+
+    peer.on('close', () => {
+        console.log('Peer connection closed');
     });
 }
 
@@ -103,14 +128,27 @@ async function getLocalStream() {
             audio: true
         });
         localVideo.srcObject = myStream;
+        return true;
     } catch (err) {
         console.error('Failed to get local stream', err);
         showNotification('Could not access camera/microphone', 'error');
+        return false;
     }
 }
 
 function handleStream(call, videoElement, container) {
+    console.log('Setting up stream handler for call:', call.peer);
+    
+    const callTimeout = setTimeout(() => {
+        if (container.classList.contains('placeholder')) {
+            console.warn('Stream timeout for:', call.peer);
+            showNotification('Connection taking longer than expected...', 'error');
+        }
+    }, 15000);
+
     call.on('stream', (remoteStream) => {
+        clearTimeout(callTimeout);
+        console.log('Stream received from:', call.peer);
         videoElement.srcObject = remoteStream;
         container.classList.remove('placeholder');
         if (container.classList.contains('hidden')) {
@@ -119,11 +157,18 @@ function handleStream(call, videoElement, container) {
     });
 
     call.on('close', () => {
+        clearTimeout(callTimeout);
+        console.log('Call closed with:', call.peer);
         videoElement.srcObject = null;
         container.classList.add('placeholder');
         if (videoElement === remoteScreen) {
             container.classList.add('hidden');
         }
+    });
+
+    call.on('error', (err) => {
+        clearTimeout(callTimeout);
+        console.error('Call error with:', call.peer, err);
     });
 }
 
@@ -137,17 +182,29 @@ remotePeerIdInput.addEventListener('paste', (e) => {
 });
 
 connectBtn.addEventListener('click', () => {
+    if (connectBtn.disabled) return;
+
     const remoteId = remotePeerIdInput.value;
+    console.log('Attempting to connect to:', remoteId);
+    
     if (!remoteId) {
+        console.warn('No Peer ID entered');
         showNotification('Please enter a Peer ID', 'error');
         return;
     }
 
+    connectBtn.disabled = true;
+    connectBtn.innerText = '...';
+
     // Call with video
+    console.log('Initiating video call...');
     const call = peer.call(remoteId, myStream, { metadata: { type: 'video' } });
     
     if (!call) {
+        console.error('Failed to create call object');
         showNotification('Failed to start call', 'error');
+        connectBtn.disabled = false;
+        connectBtn.innerText = 'Connect';
         return;
     }
 
@@ -159,7 +216,24 @@ connectBtn.addEventListener('click', () => {
     call.on('error', (err) => {
         console.error('Call error:', err);
         showNotification('Connection failed', 'error');
+        connectBtn.disabled = false;
+        connectBtn.innerText = 'Connect';
     });
+    
+    // Monitor ICE connection state if possible
+    if (call.peerConnection) {
+        call.peerConnection.oniceconnectionstatechange = () => {
+            const state = call.peerConnection.iceConnectionState;
+            console.log('ICE Connection State Change:', state);
+            if (state === 'failed' || state === 'disconnected') {
+                showNotification('Connection unstable or failed', 'error');
+                connectBtn.disabled = false;
+                connectBtn.innerText = 'Connect';
+            } else if (state === 'connected') {
+                connectBtn.innerText = 'Connected';
+            }
+        };
+    }
 });
 
 // Screen Sharing
@@ -267,18 +341,29 @@ expandBtns.forEach(btn => {
 function toggleFullscreen(targetContainer) {
     if (isFullscreen) {
         // Exit fullscreen
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(err => console.error(err));
+        }
+        
         videoGrid.classList.remove('has-fullscreen');
         videoContainers.forEach(c => {
             c.classList.remove('fullscreen', 'pip');
             c.style.transform = ''; // Reset drag position
             c.style.top = '';
             c.style.left = '';
+            c.style.right = '';
+            c.style.bottom = '';
         });
         isFullscreen = false;
     } else {
         // Enter fullscreen
+        document.documentElement.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable fullscreen: ${err.message}`);
+        });
+
         videoGrid.classList.add('has-fullscreen');
         
+        let pipCount = 0;
         videoContainers.forEach(c => {
             if (c === targetContainer) {
                 c.classList.add('fullscreen');
@@ -287,13 +372,36 @@ function toggleFullscreen(targetContainer) {
                 if (!c.classList.contains('hidden')) {
                     c.classList.add('pip');
                     c.classList.remove('fullscreen');
-                    // Initial PIP positions could be set here if needed
+                    
+                    // Stack PIPs vertically on the right
+                    c.style.right = '20px';
+                    c.style.bottom = `${20 + (pipCount * 150)}px`;
+                    c.style.top = 'auto';
+                    c.style.left = 'auto';
+                    pipCount++;
                 }
             }
         });
         isFullscreen = true;
     }
 }
+
+// Handle Esc key or browser UI exit
+document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && isFullscreen) {
+        // User exited via Esc or browser UI
+        videoGrid.classList.remove('has-fullscreen');
+        videoContainers.forEach(c => {
+            c.classList.remove('fullscreen', 'pip');
+            c.style.transform = ''; 
+            c.style.top = '';
+            c.style.left = '';
+            c.style.right = '';
+            c.style.bottom = '';
+        });
+        isFullscreen = false;
+    }
+});
 
 // Draggable PIP
 let draggedElement = null;
@@ -366,6 +474,11 @@ function showNotification(message, type = 'info') {
 }
 
 // Start
-getLocalStream().then(() => {
-    initPeer();
+getLocalStream().then((success) => {
+    if (success) {
+        initPeer();
+    } else {
+        console.error('Local stream failed, not initializing peer');
+        showNotification('Please allow camera access and refresh', 'error');
+    }
 });
