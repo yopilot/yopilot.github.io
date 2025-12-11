@@ -209,6 +209,8 @@ async function getLocalStream() {
 function handleStream(call, videoElement, container) {
     console.log('Setting up stream handler for call:', call.peer);
     
+    let streamReceived = false;  // Prevent duplicate handling
+    
     const callTimeout = setTimeout(() => {
         if (container.classList.contains('placeholder')) {
             console.warn('Stream timeout for:', call.peer);
@@ -217,6 +219,13 @@ function handleStream(call, videoElement, container) {
     }, 15000);
 
     call.on('stream', (remoteStream) => {
+        // Only handle the first stream event
+        if (streamReceived) {
+            console.log('Ignoring duplicate stream event');
+            return;
+        }
+        streamReceived = true;
+        
         clearTimeout(callTimeout);
         console.log('Stream received from:', call.peer);
         console.log('Stream tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`));
@@ -225,40 +234,27 @@ function handleStream(call, videoElement, container) {
         videoElement.srcObject = remoteStream;
         container.classList.remove('placeholder');
         
-        // Force play with muted first (bypasses autoplay), then unmute
-        videoElement.muted = true;
-        videoElement.play().then(() => {
-            // If it's not a local video, unmute it after a short delay
-            if (videoElement !== localVideo && videoElement !== localScreen) {
-                setTimeout(() => {
-                    videoElement.muted = false;
-                    console.log('Video unmuted:', videoElement.id);
-                }, 500);
-            }
-        }).catch(err => {
-            console.log('Play failed, adding click handler:', err);
-            // Add click to play
-            const playOnClick = () => {
-                videoElement.muted = false;
-                videoElement.play();
-                showNotification('Video started!', 'success');
-                container.removeEventListener('click', playOnClick);
-            };
-            container.addEventListener('click', playOnClick);
-            showNotification('Click video to start playback', 'info');
-        });
+        // Wait for video to be ready, then play
+        videoElement.onloadedmetadata = () => {
+            console.log('Video metadata loaded for:', videoElement.id);
+            videoElement.play().then(() => {
+                console.log('Video playing:', videoElement.id);
+            }).catch(err => {
+                console.log('Play failed:', err.name);
+                // Add click to play fallback
+                showNotification('Click the video to start playback', 'info');
+                container.onclick = () => {
+                    videoElement.play();
+                    container.onclick = null;
+                };
+            });
+        };
         
         // Monitor track status
         remoteStream.getTracks().forEach(track => {
-            track.onended = () => {
-                console.log('Track ended:', track.kind);
-            };
-            track.onmute = () => {
-                console.log('Track muted:', track.kind);
-            };
-            track.onunmute = () => {
-                console.log('Track unmuted:', track.kind);
-            };
+            track.onended = () => console.log('Track ended:', track.kind);
+            track.onmute = () => console.log('Track muted:', track.kind);
+            track.onunmute = () => console.log('Track unmuted:', track.kind);
         });
     });
 

@@ -301,8 +301,21 @@ button {
     font-size: 3rem;
 }
 
-.video-container.placeholder video {
+/* Hide placeholder content when video is active, but keep video visible */
+.video-container.placeholder .placeholder-content {
+    display: flex;
+}
+
+.video-container:not(.placeholder) .placeholder-content {
     display: none;
+}
+
+.video-container.placeholder video {
+    opacity: 0;
+}
+
+.video-container:not(.placeholder) video {
+    opacity: 1;
 }
 
 /* Fullscreen & PIP Logic */
