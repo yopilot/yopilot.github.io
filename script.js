@@ -135,15 +135,21 @@ function initPeer() {
     });
 
     peer.on('call', (call) => {
-        console.log('Incoming call from:', call.peer, 'Metadata:', call.metadata);
+        console.log('📞 Incoming call from:', call.peer, 'Metadata:', call.metadata);
         showNotification('Incoming call...', 'info');
         
         // Answer incoming calls
         const callType = call.metadata?.type || 'video';
         
         if (callType === 'video') {
-            console.log('Answering video call with stream:', myStream?.getTracks().map(t => t.kind));
+            console.log('📞 Answering video call with local stream:', {
+                streamId: myStream?.id,
+                tracks: myStream?.getTracks().map(t => `${t.kind}:enabled=${t.enabled}:muted=${t.muted}:state=${t.readyState}`)
+            });
+            
             call.answer(myStream);
+            console.log('✅ Answer sent with local stream');
+            
             currentCall = call;
             handleStream(call, remoteVideo, containerRemoteVideo);
             
@@ -193,6 +199,7 @@ async function getLocalStream() {
     }
 
     try {
+        console.log('🎥 Requesting getUserMedia...');
         myStream = await navigator.mediaDevices.getUserMedia({
             video: {
                 width: { ideal: 1920 },
@@ -206,17 +213,41 @@ async function getLocalStream() {
             }
         });
         
+        console.log('✅ Local stream acquired:', {
+            id: myStream.id,
+            active: myStream.active,
+            tracks: myStream.getTracks().map(t => ({
+                kind: t.kind,
+                id: t.id,
+                label: t.label,
+                enabled: t.enabled,
+                muted: t.muted,
+                readyState: t.readyState
+            }))
+        });
+        
         // Monitor local tracks (Sender side debugging)
         myStream.getTracks().forEach(track => {
+            console.log(`📌 Setting up local track monitor for ${track.kind}:`, track.label);
             track.onmute = () => {
-                console.warn('⚠️ MY local track muted (Sender side):', track.kind);
+                console.warn('⚠️ MY local track muted (Sender side):', track.kind, track.id);
                 showNotification(`Your ${track.kind} stopped sending data`, 'error');
             };
-            track.onunmute = () => console.log('✅ MY local track unmuted (Sender side):', track.kind);
-            track.onended = () => console.log('MY local track ended:', track.kind);
+            track.onunmute = () => console.log('✅ MY local track unmuted (Sender side):', track.kind, track.id);
+            track.onended = () => {
+                console.log('❌ MY local track ended:', track.kind, track.id);
+                showNotification(`Your ${track.kind} ended`, 'error');
+            };
         });
 
         localVideo.srcObject = myStream;
+        console.log('📺 Local video element srcObject set');
+        
+        // Monitor local video element
+        localVideo.onloadedmetadata = () => console.log('✅ Local video metadata loaded');
+        localVideo.onplay = () => console.log('▶️ Local video playing');
+        localVideo.onpause = () => console.log('⏸️ Local video paused');
+        
         return true;
     } catch (err) {
         console.error('Failed to get local stream', err);
@@ -247,48 +278,105 @@ function handleStream(call, videoElement, container) {
     call.on('stream', (remoteStream) => {
         // Only handle the first stream event
         if (streamReceived) {
-            console.log('Ignoring duplicate stream event');
+            console.log('⚠️ Ignoring duplicate stream event for:', call.peer);
             return;
         }
         streamReceived = true;
         
         clearTimeout(callTimeout);
-        console.log('Stream received from:', call.peer);
-        console.log('Stream tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`));
+        console.log('📥 Stream received from:', call.peer);
+        console.log('Stream details:', {
+            id: remoteStream.id,
+            active: remoteStream.active,
+            tracks: remoteStream.getTracks().map(t => `${t.kind}:enabled=${t.enabled}:muted=${t.muted}:readyState=${t.readyState}:id=${t.id.substring(0,8)}`)
+        });
+        
+        // Detailed track inspection
+        remoteStream.getTracks().forEach(track => {
+            console.log(`🔍 Remote ${track.kind} track details:`, {
+                id: track.id,
+                label: track.label,
+                enabled: track.enabled,
+                muted: track.muted,
+                readyState: track.readyState,
+                constraints: track.getConstraints(),
+                settings: track.getSettings()
+            });
+        });
         
         // Set the stream
+        console.log(`📺 Setting srcObject on ${videoElement.id}`);
         videoElement.srcObject = remoteStream;
+        console.log(`✅ srcObject set. Video element state:`, {
+            paused: videoElement.paused,
+            ended: videoElement.ended,
+            readyState: videoElement.readyState,
+            networkState: videoElement.networkState,
+            muted: videoElement.muted,
+            volume: videoElement.volume
+        });
         container.classList.remove('placeholder');
         
         // Playback logic
         const playVideo = async () => {
+            console.log(`🎬 playVideo() called for ${videoElement.id}`);
+            console.log('Video element state before play:', {
+                paused: videoElement.paused,
+                ended: videoElement.ended,
+                readyState: videoElement.readyState,
+                networkState: videoElement.networkState,
+                srcObject: videoElement.srcObject ? 'present' : 'null',
+                tracks: videoElement.srcObject ? videoElement.srcObject.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`) : 'none'
+            });
+            
             try {
                 // Always start muted to satisfy Autoplay policy immediately
+                console.log(`🔇 Muting ${videoElement.id} for autoplay`);
                 videoElement.muted = true;
+                
+                console.log(`▶️ Calling play() on ${videoElement.id}...`);
                 await videoElement.play();
-                console.log('Video playing (muted):', videoElement.id);
+                
+                console.log(`✅ Video playing (muted): ${videoElement.id}`, {
+                    paused: videoElement.paused,
+                    currentTime: videoElement.currentTime,
+                    duration: videoElement.duration
+                });
                 
                 // Now try to unmute
                 try {
+                    console.log(`🔊 Attempting to unmute ${videoElement.id}`);
                     videoElement.muted = false;
-                    console.log('Unmuted successfully');
+                    console.log('✅ Unmuted successfully');
                 } catch (err) {
-                    console.warn('Could not unmute automatically:', err);
+                    console.warn('⚠️ Could not unmute automatically:', err);
                     showNotification('Click video to enable audio', 'info');
                     // Add one-time click handler
                     const unmuteHandler = () => {
+                        console.log('🖱️ User clicked to unmute');
                         videoElement.muted = false;
                         container.removeEventListener('click', unmuteHandler);
                     };
                     container.addEventListener('click', unmuteHandler);
                 }
             } catch (err) {
-                console.error('Play failed:', err);
+                console.error(`❌ Play failed for ${videoElement.id}:`, {
+                    name: err.name,
+                    message: err.message,
+                    videoState: {
+                        paused: videoElement.paused,
+                        readyState: videoElement.readyState,
+                        networkState: videoElement.networkState
+                    }
+                });
+                
                 if (err.name === 'AbortError') {
+                    console.log('⏳ Retrying play in 500ms due to AbortError...');
                     setTimeout(playVideo, 500);
                 } else {
                     showNotification('Click to start video', 'error');
                     container.onclick = () => {
+                        console.log('🖱️ User clicked to retry play');
                         playVideo();
                         container.onclick = null;
                     };
@@ -297,30 +385,110 @@ function handleStream(call, videoElement, container) {
         };
 
         // Wait for video to be ready
+        console.log(`📊 Video ${videoElement.id} readyState: ${videoElement.readyState} (${['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'][videoElement.readyState]})`);
+        
         if (videoElement.readyState >= 1) {
-            console.log('Video metadata already loaded');
+            console.log('✅ Video metadata already loaded, playing immediately');
             playVideo();
         } else {
+            console.log('⏳ Waiting for metadata to load...');
             videoElement.onloadedmetadata = () => {
-                console.log('Video metadata loaded for:', videoElement.id);
+                console.log(`✅ Video metadata loaded for: ${videoElement.id}`, {
+                    videoWidth: videoElement.videoWidth,
+                    videoHeight: videoElement.videoHeight,
+                    duration: videoElement.duration
+                });
                 playVideo();
             };
             
             // Fallback: Force play if metadata doesn't load in 2s (sometimes helps kickstart it)
             setTimeout(() => {
+                console.log(`⏰ 2s timeout reached for ${videoElement.id}`);
                 if (videoElement.paused) {
-                    console.log('Force playing after timeout...');
+                    console.log('⚠️ Video still paused, force playing after timeout...');
                     playVideo();
+                } else {
+                    console.log('ℹ️ Video already playing, no action needed');
                 }
             }, 2000);
         }
         
-        // Monitor track status
+        // Add comprehensive video element event listeners
+        videoElement.onplay = () => console.log(`▶️ ${videoElement.id} PLAY event`);
+        videoElement.onplaying = () => console.log(`▶️ ${videoElement.id} PLAYING event`);
+        videoElement.onpause = () => console.log(`⏸️ ${videoElement.id} PAUSE event`);
+        videoElement.onstalled = () => console.warn(`⚠️ ${videoElement.id} STALLED event`);
+        videoElement.onsuspend = () => console.log(`⏸️ ${videoElement.id} SUSPEND event`);
+        videoElement.onwaiting = () => console.log(`⏳ ${videoElement.id} WAITING event`);
+        videoElement.onerror = (e) => console.error(`❌ ${videoElement.id} ERROR event:`, videoElement.error);
+        videoElement.onloadstart = () => console.log(`📥 ${videoElement.id} LOADSTART event`);
+        videoElement.oncanplay = () => console.log(`✅ ${videoElement.id} CANPLAY event`);
+        videoElement.oncanplaythrough = () => console.log(`✅ ${videoElement.id} CANPLAYTHROUGH event`);
+        
+        // Monitor track status with detailed logging
         remoteStream.getTracks().forEach(track => {
-            track.onended = () => console.log('Track ended:', track.kind);
-            track.onmute = () => console.log('Track muted:', track.kind);
-            track.onunmute = () => console.log('Track unmuted:', track.kind);
+            console.log(`📌 Setting up remote track monitors for ${track.kind}:`, track.id.substring(0,8));
+            
+            track.onended = () => {
+                console.log(`❌ Remote track ENDED: ${track.kind}`, track.id.substring(0,8));
+                showNotification(`Remote ${track.kind} ended`, 'error');
+            };
+            
+            track.onmute = () => {
+                console.warn(`🔇 Remote track MUTED: ${track.kind}`, {
+                    id: track.id.substring(0,8),
+                    enabled: track.enabled,
+                    readyState: track.readyState,
+                    muted: track.muted
+                });
+                showNotification(`Remote ${track.kind} muted`, 'error');
+                
+                // Check video element state when track mutes
+                console.log('Video element state when track muted:', {
+                    id: videoElement.id,
+                    paused: videoElement.paused,
+                    readyState: videoElement.readyState,
+                    videoWidth: videoElement.videoWidth,
+                    videoHeight: videoElement.videoHeight,
+                    currentTime: videoElement.currentTime
+                });
+            };
+            
+            track.onunmute = () => {
+                console.log(`🔊 Remote track UNMUTED: ${track.kind}`, {
+                    id: track.id.substring(0,8),
+                    enabled: track.enabled,
+                    readyState: track.readyState,
+                    muted: track.muted
+                });
+            };
         });
+        
+        // Periodic state monitoring
+        const stateMonitor = setInterval(() => {
+            if (!videoElement.srcObject) {
+                console.log('🛑 Stopping state monitor - srcObject removed');
+                clearInterval(stateMonitor);
+                return;
+            }
+            
+            const tracks = remoteStream.getTracks();
+            console.log(`📊 Periodic state check for ${videoElement.id}:`, {
+                videoElement: {
+                    paused: videoElement.paused,
+                    ended: videoElement.ended,
+                    readyState: videoElement.readyState,
+                    networkState: videoElement.networkState,
+                    currentTime: videoElement.currentTime.toFixed(2),
+                    videoWidth: videoElement.videoWidth,
+                    videoHeight: videoElement.videoHeight
+                },
+                stream: {
+                    active: remoteStream.active,
+                    tracks: tracks.map(t => `${t.kind}:enabled=${t.enabled}:muted=${t.muted}:state=${t.readyState}`)
+                }
+            });
+        }, 5000);
     });
 
     call.on('close', () => {
@@ -364,16 +532,24 @@ connectBtn.addEventListener('click', () => {
     connectBtn.innerText = '...';
 
     // Call with video
-    console.log('Initiating video call...');
+    console.log('📞 Initiating video call to:', remoteId);
+    console.log('Local stream for call:', {
+        streamId: myStream?.id,
+        active: myStream?.active,
+        tracks: myStream?.getTracks().map(t => `${t.kind}:enabled=${t.enabled}:muted=${t.muted}:state=${t.readyState}:id=${t.id.substring(0,8)}`)
+    });
+    
     const call = peer.call(remoteId, myStream, { metadata: { type: 'video' } });
     
     if (!call) {
-        console.error('Failed to create call object');
+        console.error('❌ Failed to create call object');
         showNotification('Failed to start call', 'error');
         connectBtn.disabled = false;
         connectBtn.innerText = 'Connect';
         return;
     }
+    
+    console.log('✅ Call object created:', call.peer);
 
     currentCall = call;
     handleStream(call, remoteVideo, containerRemoteVideo);
