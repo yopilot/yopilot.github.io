@@ -98,7 +98,12 @@ function initPeer() {
                     username: 'openrelayproject',
                     credential: 'openrelayproject'
                 }
-            ]
+            ],
+            sdpSemantics: 'unified-plan',
+            iceTransportPolicy: 'all',
+            iceCandidatePoolSize: 10,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
         }
     });
 
