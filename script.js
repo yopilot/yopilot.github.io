@@ -358,7 +358,11 @@ function handleStream(call, videoElement, container) {
                     const stats = await call.peerConnection.getStats();
                     console.log('📊 Initial WebRTC Stats (500ms after stream received):');
                     
+                    // Log ALL stat types to see what we have
+                    const statTypes = {};
                     stats.forEach(report => {
+                        statTypes[report.type] = (statTypes[report.type] || 0) + 1;
+                        
                         if (report.type === 'inbound-rtp') {
                             console.log(`  ${report.kind} inbound:`, {
                                 bytesReceived: report.bytesReceived,
@@ -376,7 +380,55 @@ function handleStream(call, videoElement, container) {
                                 roundTripTime: report.roundTripTime
                             });
                         }
+                        if (report.type === 'track') {
+                            console.log(`  track ${report.kind}:`, {
+                                trackIdentifier: report.trackIdentifier,
+                                remoteSource: report.remoteSource,
+                                ended: report.ended,
+                                framesReceived: report.framesReceived,
+                                framesDecoded: report.framesDecoded
+                            });
+                        }
                     });
+                    
+                    console.log('📊 Stat types found:', statTypes);
+                    
+                    // Check transceivers
+                    const transceivers = call.peerConnection.getTransceivers();
+                    console.log('📼 Transceivers:', transceivers.map(t => ({
+                        mid: t.mid,
+                        direction: t.direction,
+                        currentDirection: t.currentDirection,
+                        sender: {
+                            track: t.sender.track ? {
+                                kind: t.sender.track.kind,
+                                enabled: t.sender.track.enabled,
+                                muted: t.sender.track.muted,
+                                readyState: t.sender.track.readyState
+                            } : null
+                        },
+                        receiver: {
+                            track: t.receiver.track ? {
+                                kind: t.receiver.track.kind,
+                                enabled: t.receiver.track.enabled,
+                                muted: t.receiver.track.muted,
+                                readyState: t.receiver.track.readyState
+                            } : null
+                        }
+                    })));
+                    
+                    // Log the SDP to see what was negotiated
+                    const localDesc = call.peerConnection.localDescription;
+                    const remoteDesc = call.peerConnection.remoteDescription;
+                    console.log('📤 SDP Info:', {
+                        localType: localDesc?.type,
+                        remoteType: remoteDesc?.type,
+                        localHasVideo: localDesc?.sdp?.includes('m=video'),
+                        localHasAudio: localDesc?.sdp?.includes('m=audio'),
+                        remoteHasVideo: remoteDesc?.sdp?.includes('m=video'),
+                        remoteHasAudio: remoteDesc?.sdp?.includes('m=audio')
+                    });
+                    
                 } catch (err) {
                     console.error('❌ Failed to get initial stats:', err);
                 }
@@ -599,7 +651,11 @@ function handleStream(call, videoElement, container) {
                 let audioInbound = null;
                 let candidatePair = null;
                 
+                // Count stat types
+                const statTypes = {};
                 stats.forEach(report => {
+                    statTypes[report.type] = (statTypes[report.type] || 0) + 1;
+                    
                     if (report.type === 'inbound-rtp' && report.kind === 'video') {
                         videoInbound = report;
                     }
@@ -610,6 +666,11 @@ function handleStream(call, videoElement, container) {
                         candidatePair = report;
                     }
                 });
+                
+                // Log available stat types on first few checks
+                if (statsCheckCount <= 3) {
+                    console.log('📊 Available stat types:', statTypes);
+                }
                 
                 const videoBytesDelta = videoInbound ? videoInbound.bytesReceived - lastVideoBytes : 0;
                 const audioBytesDelta = audioInbound ? audioInbound.bytesReceived - lastAudioBytes : 0;
@@ -641,6 +702,12 @@ function handleStream(call, videoElement, container) {
                 if (videoInbound && videoBytesDelta === 0 && statsCheckCount > 3) {
                     console.error('❌❌❌ NO VIDEO DATA FLOWING! Bytes received is not increasing!');
                     showNotification('⚠️ No video data received - check remote camera', 'error');
+                }
+                
+                // Alert if no inbound-rtp stats exist at all
+                if (!videoInbound && !audioInbound && statsCheckCount === 3) {
+                    console.error('❌❌❌ NO INBOUND-RTP STATS! Media channels not established!');
+                    showNotification('⚠️ WebRTC media not flowing - connection issue', 'error');
                 }
                 
                 lastVideoBytes = videoInbound ? videoInbound.bytesReceived : 0;
