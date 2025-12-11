@@ -86,7 +86,9 @@ function initPeer() {
                     credential: 'openrelayproject'
                 }
             ],
-            sdpSemantics: 'unified-plan'
+            sdpSemantics: 'unified-plan',
+            iceTransportPolicy: 'all', // Explicitly allow all candidates
+            iceCandidatePoolSize: 10
         }
     });
 
