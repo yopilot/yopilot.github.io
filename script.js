@@ -88,7 +88,10 @@ function initPeer() {
             ],
             sdpSemantics: 'unified-plan',
             iceTransportPolicy: 'all', // Explicitly allow all candidates
-            iceCandidatePoolSize: 10
+            iceCandidatePoolSize: 10,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require',
+            encodedInsertableStreams: false
         }
     });
 
@@ -100,13 +103,23 @@ function initPeer() {
 
     peer.on('connection', (conn) => {
         console.log('Incoming connection from:', conn.peer);
-        conn.on('open', () => {
-            console.log('Connection established with:', conn.peer);
-            showNotification('Connected!', 'success');
-        });
-        conn.on('error', (err) => {
-            console.error('Connection error:', err);
-        });
+        
+        // Close existing connection if any
+        if (currentCall && currentCall.peer === conn.peer) {
+            console.log('Closing existing call connection');
+            currentCall.close();
+        }
+
+        // Wait a moment for connection to initialize (helps with reliability)
+        setTimeout(() => {
+            conn.on('open', () => {
+                console.log('Connection established with:', conn.peer);
+                showNotification('Connected!', 'success');
+            });
+            conn.on('error', (err) => {
+                console.error('Connection error:', err);
+            });
+        }, 100);
     });
 
     peer.on('call', (call) => {
@@ -158,7 +171,16 @@ async function getLocalStream() {
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
-                autoGainControl: true
+                autoGainControl: true,
+                sampleRate: 48000,
+                sampleSize: 16,
+                channelCount: 2,
+                latency: 0.01,
+                googEchoCancellation: true,
+                googAutoGainControl: true,
+                googNoiseSuppression: true,
+                googHighpassFilter: true,
+                googTypingNoiseDetection: true
             }
         });
         localVideo.srcObject = myStream;
