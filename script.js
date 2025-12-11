@@ -60,13 +60,29 @@ function initPeer() {
     peer = new Peer(null, {
         config: {
             iceServers: [
+                // STUN servers
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' },
-                { urls: 'stun:stun.services.mozilla.com' }
-            ]
+                { urls: 'stun:global.stun.twilio.com:3478' },
+                // Free TURN servers (OpenRelay)
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ],
+            iceCandidatePoolSize: 10
         },
         debug: 3
     });
@@ -81,6 +97,7 @@ function initPeer() {
         console.log('Incoming connection from:', conn.peer);
         conn.on('open', () => {
             console.log('Connection established with:', conn.peer);
+            showNotification('Connected!', 'success');
         });
         conn.on('error', (err) => {
             console.error('Connection error:', err);
@@ -89,6 +106,8 @@ function initPeer() {
 
     peer.on('call', (call) => {
         console.log('Incoming call from:', call.peer, 'Metadata:', call.metadata);
+        showNotification('Incoming call...', 'info');
+        
         // Answer incoming calls
         const callType = call.metadata?.type || 'video';
         
@@ -97,6 +116,7 @@ function initPeer() {
             call.answer(myStream);
             currentCall = call;
             handleStream(call, remoteVideo, containerRemoteVideo);
+            showNotification('Call connected!', 'success');
         } else if (callType === 'screen') {
             console.log('Answering screen share call...');
             call.answer(); // Answer screen share calls (usually one-way)
@@ -111,8 +131,9 @@ function initPeer() {
     });
 
     peer.on('disconnected', () => {
-        console.log('Peer disconnected from server');
-        showNotification('Disconnected from server', 'error');
+        console.log('Peer disconnected from server, attempting reconnect...');
+        showNotification('Reconnecting...', 'info');
+        peer.reconnect();
     });
 
     peer.on('close', () => {
@@ -211,7 +232,7 @@ connectBtn.addEventListener('click', () => {
     currentCall = call;
     handleStream(call, remoteVideo, containerRemoteVideo);
     
-    showNotification('Calling...', 'info');
+    showNotification('Connecting...', 'info');
 
     call.on('error', (err) => {
         console.error('Call error:', err);
@@ -220,18 +241,65 @@ connectBtn.addEventListener('click', () => {
         connectBtn.innerText = 'Connect';
     });
     
-    // Monitor ICE connection state if possible
+    // Monitor ICE connection state
     if (call.peerConnection) {
+        // Log ICE candidates for debugging
+        call.peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                console.log('ICE Candidate:', event.candidate.type, event.candidate.address);
+            }
+        };
+
         call.peerConnection.oniceconnectionstatechange = () => {
             const state = call.peerConnection.iceConnectionState;
             console.log('ICE Connection State Change:', state);
-            if (state === 'failed' || state === 'disconnected') {
-                showNotification('Connection unstable or failed', 'error');
+            
+            if (state === 'checking') {
+                showNotification('Establishing connection...', 'info');
+            } else if (state === 'connected' || state === 'completed') {
+                showNotification('Connected!', 'success');
+                connectBtn.innerText = 'Connected';
+                
+                // Check connection type (P2P vs Relay)
+                call.peerConnection.getStats().then(stats => {
+                    stats.forEach(report => {
+                        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                            const localCandidateId = report.localCandidateId;
+                            const remoteCandidateId = report.remoteCandidateId;
+                            const localCandidate = stats.get(localCandidateId);
+                            const remoteCandidate = stats.get(remoteCandidateId);
+                            
+                            if (remoteCandidate) {
+                                const type = remoteCandidate.candidateType;
+                                console.log('Connected via:', type);
+                                if (type === 'relay') {
+                                    showNotification('Connected via Relay (TURN)', 'info');
+                                } else {
+                                    showNotification(`Connected P2P (${type})`, 'success');
+                                }
+                            }
+                        }
+                    });
+                });
+            } else if (state === 'failed') {
+                console.error('ICE connection failed');
+                showNotification('Connection failed - retrying...', 'error');
+                
+                // Try ICE restart
+                if (call.peerConnection.restartIce) {
+                    call.peerConnection.restartIce();
+                }
+            } else if (state === 'disconnected') {
+                showNotification('Connection interrupted, waiting...', 'error');
+                // Don't reset button immediately - connection might recover
+            } else if (state === 'closed') {
                 connectBtn.disabled = false;
                 connectBtn.innerText = 'Connect';
-            } else if (state === 'connected') {
-                connectBtn.innerText = 'Connected';
             }
+        };
+
+        call.peerConnection.onicegatheringstatechange = () => {
+            console.log('ICE Gathering State:', call.peerConnection.iceGatheringState);
         };
     }
 });
