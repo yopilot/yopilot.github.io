@@ -81,32 +81,7 @@ function initPeer() {
                 // 1. Google STUN
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-
-                // 2. Metered.ca TURN Servers
-                {
-                    urls: "stun:stun.relay.metered.ca:80",
-                },
-                {
-                    urls: "turn:global.relay.metered.ca:80",
-                    username: "fa8e6d0cb4a36b03d97bb3eb",
-                    credential: "dAEEWN7fC6APUBFh",
-                },
-                {
-                    urls: "turn:global.relay.metered.ca:80?transport=tcp",
-                    username: "fa8e6d0cb4a36b03d97bb3eb",
-                    credential: "dAEEWN7fC6APUBFh",
-                },
-                {
-                    urls: "turn:global.relay.metered.ca:443",
-                    username: "fa8e6d0cb4a36b03d97bb3eb",
-                    credential: "dAEEWN7fC6APUBFh",
-                },
-                {
-                    urls: "turns:global.relay.metered.ca:443?transport=tcp",
-                    username: "fa8e6d0cb4a36b03d97bb3eb",
-                    credential: "dAEEWN7fC6APUBFh",
-                }
+                { urls: 'stun:stun2.l.google.com:19302' }
             ],
             sdpSemantics: 'unified-plan',
             iceTransportPolicy: 'all',
