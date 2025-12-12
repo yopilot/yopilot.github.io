@@ -233,7 +233,8 @@ button {
     opacity: 1;
 }
 
-.expand-btn {
+.expand-btn,
+.pip-btn {
     background-color: rgba(0, 0, 0, 0.6);
     color: white;
     width: 32px;
@@ -244,7 +245,8 @@ button {
     justify-content: center;
 }
 
-.expand-btn:hover {
+.expand-btn:hover,
+.pip-btn:hover {
     background-color: var(--accent-color);
 }
 

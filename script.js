@@ -69,21 +69,21 @@ function updateThemeIcon(theme) {
 
 // Initialize PeerJS
 function initPeer() {
-    console.log('🚀 Initializing PeerJS with Metered.ca TURN servers...');
+    console.log('Initializing PeerJS...');
     peer = new Peer({
-        debug: 2,
+        debug: 1,
         host: '0.peerjs.com',
         secure: true,
         port: 443,
         path: '/',
         config: {
             iceServers: [
-                // 1. Google STUN (Free, Unlimited, Fast for P2P)
+                // 1. Google STUN
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
 
-                // 2. Your Metered.ca TURN Servers (For bypassing firewalls)
+                // 2. Metered.ca TURN Servers
                 {
                     urls: "stun:stun.relay.metered.ca:80",
                 },
@@ -109,7 +109,7 @@ function initPeer() {
                 }
             ],
             sdpSemantics: 'unified-plan',
-            iceTransportPolicy: 'all', // Try P2P first, then TURN
+            iceTransportPolicy: 'all',
             bundlePolicy: 'max-bundle',
             rtcpMuxPolicy: 'require',
             encodedInsertableStreams: false
@@ -117,7 +117,7 @@ function initPeer() {
     });
 
     peer.on('open', (id) => {
-        console.log('🆔 My Peer ID is:', id);
+        console.log('My Peer ID:', id);
         myPeerIdDisplay.innerText = id;
         showNotification('Ready to connect', 'success');
     });
@@ -131,13 +131,13 @@ function initPeer() {
                 showNotification('Connected!', 'success');
             });
             conn.on('error', (err) => {
-                console.error('❌ Connection error:', err);
+                console.error('Connection error:', err);
             });
         }, 100);
     });
 
     peer.on('call', (call) => {
-        console.log('📞 Incoming call from:', call.peer);
+        console.log('Incoming call from:', call.peer);
         showNotification('Incoming call...', 'info');
         
         const callType = call.metadata?.type || 'video';
@@ -155,7 +155,7 @@ function initPeer() {
     });
 
     peer.on('error', (err) => {
-        console.error('❌ PeerJS Error:', err);
+        console.error('PeerJS Error:', err);
         let message = `Error: ${err.type}`;
         if (err.type === 'peer-unavailable') message = 'Peer not found. Check the ID.';
         else if (err.type === 'disconnected') message = 'Disconnected. Reconnecting...';
@@ -166,7 +166,7 @@ function initPeer() {
     });
 
     peer.on('disconnected', () => {
-        console.log('⚠️ Peer disconnected, attempting reconnect...');
+        console.log('Peer disconnected, attempting reconnect...');
         peer.reconnect();
     });
 }
@@ -174,7 +174,7 @@ function initPeer() {
 // Media Handling
 async function getLocalStream() {
     try {
-        console.log('🎥 Requesting getUserMedia...');
+        console.log('Requesting local stream...');
         const rawStream = await navigator.mediaDevices.getUserMedia({
             video: {
                 width: { ideal: 1280 }, // 720p is good balance for mobile/desktop
@@ -201,7 +201,7 @@ async function getLocalStream() {
         localVideo.srcObject = myStream;
         return true;
     } catch (err) {
-        console.error('❌ Failed to get local stream:', err);
+        console.error('Failed to get local stream:', err);
         showNotification('Could not access camera/mic', 'error');
         return false;
     }
@@ -224,7 +224,7 @@ function handleStream(call, videoElement, container) {
         streamReceived = true;
         clearTimeout(callTimeout);
         
-        console.log('📥 Stream received');
+        console.log('Stream received');
         videoElement.srcObject = remoteStream;
         container.classList.remove('placeholder');
         
@@ -252,33 +252,10 @@ function handleStream(call, videoElement, container) {
                 return;
             }
             if (videoElement.paused && videoElement.readyState > 2) {
-                console.log('🔄 Watchdog: Resuming paused video');
+                console.log('Watchdog: Resuming paused video');
                 safePlay();
             }
         }, 5000);
-        
-        // Log connection type (P2P vs Relay)
-        if (call.peerConnection) {
-            call.peerConnection.addEventListener('iceconnectionstatechange', () => {
-                if (call.peerConnection.iceConnectionState === 'connected') {
-                    call.peerConnection.getStats().then(stats => {
-                        stats.forEach(report => {
-                            if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-                                const remoteCandidate = stats.get(report.remoteCandidateId);
-                                if (remoteCandidate) {
-                                    console.log('🔗 Connected via:', remoteCandidate.candidateType);
-                                    if (remoteCandidate.candidateType === 'relay') {
-                                        showNotification('Connected via TURN (Relay)', 'info');
-                                    } else {
-                                        showNotification('Connected P2P (Direct)', 'success');
-                                    }
-                                }
-                            }
-                        });
-                    });
-                }
-            });
-        }
     });
 
     call.on('close', () => {
@@ -392,17 +369,116 @@ copyIdBtn.addEventListener('click', () => {
     showNotification('ID copied!', 'success');
 });
 
-// Expand/Fullscreen Logic
-document.querySelectorAll('.expand-btn').forEach(btn => {
+// Fullscreen & PIP Logic
+const expandBtns = document.querySelectorAll('.expand-btn');
+const videoContainers = document.querySelectorAll('.video-container');
+
+expandBtns.forEach(btn => {
     btn.addEventListener('click', (e) => {
         const container = e.target.closest('.video-container');
-        if (!document.fullscreenElement) {
-            container.requestFullscreen().catch(err => console.error(err));
-        } else {
-            document.exitFullscreen();
-        }
+        toggleFullscreen(container);
     });
 });
+
+function toggleFullscreen(targetContainer) {
+    if (isFullscreen) {
+        // Exit fullscreen
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        }
+        
+        videoGrid.classList.remove('has-fullscreen');
+        videoContainers.forEach(c => {
+            c.classList.remove('fullscreen');
+            c.classList.remove('pip');
+            c.style.transform = ''; // Reset drag position
+        });
+        isFullscreen = false;
+    } else {
+        // Enter fullscreen
+        document.documentElement.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+        });
+
+        videoGrid.classList.add('has-fullscreen');
+        
+        let pipCount = 0;
+        videoContainers.forEach(c => {
+            if (c === targetContainer) {
+                c.classList.add('fullscreen');
+            } else {
+                // Only make active videos PIP
+                if (!c.classList.contains('placeholder')) {
+                    c.classList.add('pip');
+                    // Offset multiple PIPs so they don't stack perfectly
+                    c.style.bottom = `${20 + (pipCount * 150)}px`;
+                    pipCount++;
+                }
+            }
+        });
+        isFullscreen = true;
+    }
+}
+
+// Handle Esc key or browser UI exit
+document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && isFullscreen) {
+        // User exited via Esc or browser UI
+        videoGrid.classList.remove('has-fullscreen');
+        videoContainers.forEach(c => {
+            c.classList.remove('fullscreen');
+            c.classList.remove('pip');
+            c.style.transform = '';
+        });
+        isFullscreen = false;
+    }
+});
+
+// Draggable PIP
+let draggedElement = null;
+let initialX, initialY;
+let currentX, currentY;
+let xOffset = 0, yOffset = 0;
+
+document.addEventListener('mousedown', dragStart);
+document.addEventListener('mousemove', drag);
+document.addEventListener('mouseup', dragEnd);
+
+function dragStart(e) {
+    const pipContainer = e.target.closest('.video-container.pip');
+    if (pipContainer) {
+        draggedElement = pipContainer;
+        
+        // Get current transform values if any
+        const style = window.getComputedStyle(draggedElement);
+        const matrix = new WebKitCSSMatrix(style.transform);
+        xOffset = matrix.m41;
+        yOffset = matrix.m42;
+
+        initialX = e.clientX - xOffset;
+        initialY = e.clientY - yOffset;
+    }
+}
+
+function drag(e) {
+    if (draggedElement) {
+        e.preventDefault();
+        currentX = e.clientX - initialX;
+        currentY = e.clientY - initialY;
+
+        setTranslate(currentX, currentY, draggedElement);
+    }
+}
+
+function dragEnd(e) {
+    initialX = currentX;
+    initialY = currentY;
+    draggedElement = null;
+}
+
+function setTranslate(xPos, yPos, el) {
+    el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+}
 
 // Notifications
 function showNotification(message, type = 'info') {
