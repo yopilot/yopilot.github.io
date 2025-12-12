@@ -173,6 +173,12 @@ function initPeer() {
 
 // Media Handling
 async function getLocalStream() {
+    // Check for insecure origin
+    if (location.protocol === 'http:' && location.hostname !== 'localhost' && !location.hostname.startsWith('127.0.0.')) {
+        console.warn('Application is running on HTTP. Camera access may be blocked.');
+        showNotification('Warning: Insecure connection (HTTP). Camera may fail.', 'error');
+    }
+
     try {
         console.log('Requesting local stream...');
         const rawStream = await navigator.mediaDevices.getUserMedia({
@@ -484,13 +490,22 @@ function setTranslate(xPos, yPos, el) {
 function showNotification(message, type = 'info') {
     const notif = document.createElement('div');
     notif.className = 'notification';
-    notif.innerHTML = `<i class="fas fa-${type === 'success' ? 'check' : type === 'error' ? 'exclamation' : 'info'}-circle"></i> ${message}`;
-    if (type === 'error') notif.style.borderLeft = '4px solid #ef4444';
-    if (type === 'success') notif.style.borderLeft = '4px solid #10b981';
+    
+    let icon = 'info-circle';
+    if (type === 'success') icon = 'check-circle';
+    if (type === 'error') icon = 'exclamation-circle';
+    
+    notif.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
+    
+    // Color coding using CSS variables
+    if (type === 'error') notif.style.borderLeft = '4px solid var(--danger-color)';
+    if (type === 'success') notif.style.borderLeft = '4px solid var(--success-color)';
     
     notificationArea.appendChild(notif);
+    
     setTimeout(() => {
         notif.style.opacity = '0';
+        notif.style.transform = 'translateY(20px)';
         setTimeout(() => notif.remove(), 300);
     }, 3000);
 }
