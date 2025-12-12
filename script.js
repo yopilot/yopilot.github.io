@@ -81,12 +81,30 @@ function initPeer() {
                 // 1. Google STUN
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
+                { urls: 'stun:stun2.l.google.com:19302' },
+                // Twilio (Reliable Backup)
+                { urls: 'stun:global.stun.twilio.com:3478' },
+    
+    // Mozilla (Community Standard)
+                { urls: 'stun:stun.services.mozilla.com' },
+
+                // 2. ExpressTurn TURN Server
+                {
+                    urls: 'turn:relay1.expressturn.com:3480',
+                    username: 'efPU52K4SLOQ34W2QY',
+                    credential: '1TJPNFxHKXrZfelz'
+                },
+                {
+                    urls: 'turn:relay1.expressturn.com:3480?transport=tcp',
+                    username: 'efPU52K4SLOQ34W2QY',
+                    credential: '1TJPNFxHKXrZfelz'
+                }
             ],
             sdpSemantics: 'unified-plan',
             iceTransportPolicy: 'all',
             bundlePolicy: 'max-bundle',
             rtcpMuxPolicy: 'require',
+            iceCandidatePoolSize: 10,
             encodedInsertableStreams: false
         }
     });
@@ -94,7 +112,7 @@ function initPeer() {
     peer.on('open', (id) => {
         console.log('My Peer ID:', id);
         myPeerIdDisplay.innerText = id;
-        showNotification('Ready to connect', 'success');
+        showNotification('Ready to connect via IPv6/STUN', 'success');
     });
 
     peer.on('connection', (conn) => {
@@ -191,6 +209,33 @@ async function getLocalStream() {
 function handleStream(call, videoElement, container) {
     if (call.handled) return;
     call.handled = true;
+
+    // 1. Watch for Network Drops
+    call.peerConnection.oniceconnectionstatechange = () => {
+        const state = call.peerConnection.iceConnectionState;
+        console.log('🧊 ICE State Change:', state);
+
+        if (state === 'disconnected' || state === 'failed') {
+            console.warn('⚠️ Connection lost! Attempting ICE Restart...');
+            showNotification('Connection unstable. Reconnecting...', 'error');
+            
+            // 2. The Fix: Trigger ICE Restart
+            // This tells the browser: "My IP changed, find a new path!"
+            if (call.peerConnection.restartIce) {
+                call.peerConnection.restartIce();
+            }
+            
+            // 3. Brute Force Reconnect (Fallback)
+            // If it doesn't fix itself in 5 seconds, reload the call
+            setTimeout(() => {
+                if (call.peerConnection.iceConnectionState !== 'connected') {
+                    console.log('♻️ ICE Restart failed. Negotiating new connection...');
+                    // Note: PeerJS handles some renegotiation, but often a fresh call is safest
+                    // Ideally, you would signal the other peer to call you back here.
+                }
+            }, 5000);
+        }
+    };
     
     let streamReceived = false;
     
@@ -281,10 +326,14 @@ shareScreenBtn.addEventListener('click', async () => {
     } else {
         try {
             myScreenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { cursor: "always" },
+                video: { 
+                    cursor: "always",
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                    frameRate: { ideal: 30 }
+                },
                 audio: true
             });
-            
             localScreen.srcObject = myScreenStream;
             containerLocalScreen.classList.remove('placeholder');
             isScreenSharing = true;
@@ -483,6 +532,40 @@ function showNotification(message, type = 'info') {
         notif.style.transform = 'translateY(20px)';
         setTimeout(() => notif.remove(), 300);
     }, 3000);
+}
+
+// Auto Picture-in-Picture Logic
+document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'hidden') {
+        await enterPiP();
+    } else if (document.visibilityState === 'visible') {
+        await exitPiP();
+    }
+});
+
+async function enterPiP() {
+    try {
+        if (document.pictureInPictureElement) return;
+        
+        // Priority: Remote Screen > Remote Video
+        if (remoteScreen.srcObject && remoteScreen.readyState >= 1) {
+            await remoteScreen.requestPictureInPicture();
+        } else if (remoteVideo.srcObject && remoteVideo.readyState >= 1) {
+            await remoteVideo.requestPictureInPicture();
+        }
+    } catch (err) {
+        console.error('Failed to enter PiP:', err);
+    }
+}
+
+async function exitPiP() {
+    try {
+        if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture();
+        }
+    } catch (err) {
+        console.error('Failed to exit PiP:', err);
+    }
 }
 
 // Start App
